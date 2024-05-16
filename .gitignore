@@ -1,0 +1,5 @@
+# Temporary files when built using Make.
+temp/
+
+# Built executable binary.
+rebs
