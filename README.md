@@ -2,8 +2,6 @@
 
 REBS (Really Easy Build System) is a build system intended for C and C++ packages. It is intended to build packages from a directory of C/C++ source code with little-to-no configuration required.
 
-Not everything mentioned below has been implemented yet.
-
 ## Usage
 
 ### Basic usage

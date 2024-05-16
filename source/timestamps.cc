@@ -1,0 +1,59 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "timestamps.h"
+
+#include <chrono>
+#include <filesystem>
+#include <iostream>
+#include <map>
+
+namespace {
+
+// A cache of timestamps of files.
+std::map<std::string, uint64_t> timestamps_by_filename;
+
+}  // namespace
+
+uint64_t GetTimestampOfFile(const std::string& file_name) {
+  auto itr = timestamps_by_filename.find(file_name);
+  if (itr != timestamps_by_filename.end()) return itr->second;
+
+  uint64_t timestamp = 0;
+  if (std::filesystem::exists(file_name)) {
+    auto last_write_time = std::filesystem::last_write_time(file_name);
+    auto time_since_epoch = last_write_time.time_since_epoch();
+    timestamp =
+        std::chrono::duration_cast<std::chrono::milliseconds>(time_since_epoch)
+            .count();
+  } else if (std::filesystem::is_directory(file_name)) {
+    // 0 is used to mean a file doesn't exist, but directories do exist, they
+    // just don't have a timestamp.
+    timestamp = 1;
+  }
+  timestamps_by_filename[file_name] = timestamp;
+  return timestamp;
+}
+
+bool DoesFileExist(const std::string& file_name) {
+  return GetTimestampOfFile(file_name) != 0;
+}
+
+void SetTimestampOfFileToNow(const std::string& file_name) {
+  auto now = std::chrono::system_clock::now();
+  auto time_since_epoch = now.time_since_epoch();
+  timestamps_by_filename[file_name] =
+      std::chrono::duration_cast<std::chrono::milliseconds>(time_since_epoch)
+          .count();
+}
