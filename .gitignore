@@ -1,3 +1,6 @@
+# VSCode files.
+.vscode/
+
 # Temporary files when built using Make.
 temp/
 
