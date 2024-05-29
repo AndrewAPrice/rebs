@@ -21,6 +21,7 @@
 #include <iostream>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <string>
 
 #include "command_queue.h"

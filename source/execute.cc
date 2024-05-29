@@ -16,6 +16,7 @@
 
 #include <array>
 #include <iostream>
+#include <ostream>
 #include <sstream>
 #include <string>
 
@@ -29,7 +30,7 @@ namespace {
 
 // Returns the output stream, which is the provided stream, if it's not null, or
 // stderr.
-std::stringstream& OutputStream(std::stringstream* opt_output) {
+std::ostream& OutputStream(std::stringstream* opt_output) {
   return opt_output ? *opt_output : std::cerr;
 }
 
@@ -61,7 +62,8 @@ bool ExecuteCommand(const std::string& command, std::stringstream* opt_output) {
     }
 
     // Return if the program closed without error.
-    if (WEXITSTATUS(pclose(pipe)) == EXIT_SUCCESS) return true;
+    int return_code = pclose(pipe);
+    if (WEXITSTATUS(return_code) == EXIT_SUCCESS) return true;
   } catch (...) {
     throw;
   }
