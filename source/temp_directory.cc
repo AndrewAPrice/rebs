@@ -24,6 +24,7 @@
 #include "invocation.h"
 #include "optimization_level.h"
 #include "package_id.h"
+#include "string_replace.h"
 
 namespace {
 
@@ -32,7 +33,7 @@ constexpr char kTempSubDirectoryName[] = "rebs";
 
 // The name of the sub directory inside the current working directory when
 // isolated to a local universe.
-constexpr char kLocalTempSubdirectoryName[] = "build";
+constexpr char kLocalTempSubdirectoryName[] = ".build";
 
 std::filesystem::path temp_directory_path;
 
@@ -49,6 +50,7 @@ void InitializeTempDirectory() {
   temp_directory_path =
       temp_directory_root / OptimizationLevelToString(GetOptimizationLevel());
   EnsureDirectoriesAndParentsExist(temp_directory_path);
+  SetPlaceholder("temp directory", std::string(temp_directory_path));
 }
 
 std::filesystem::path GetTempDirectoryPath() { return temp_directory_path; }

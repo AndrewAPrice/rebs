@@ -28,6 +28,8 @@ enum class Stage {
   // When the build source files and libraries are linked together into
   // applications.
   LinkApplication = 2,
+  // When the binaries and assets are copied to the destination path.
+  CopyAssets = 3,
   // When the applications run.
-  Run = 3
+  Run = 4
 };

@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,9 @@ struct PackageMetadata {
   std::vector<std::string> public_include_directories;
   // // A list of directories to scan for 'include' files.
   std::vector<std::string> include_directories;
+  // The priority of this package's include directories. A lower number means
+  // a higher priority, and the include directories will be ordered first.
+  int include_priorty = 0;
 
   // A list of `define`s passed to source files when building, that is also
   // shared with any package depending on this package.
@@ -65,12 +69,22 @@ struct PackageMetadata {
   // A list of packages that this package depends on.
   std::vector<std::string> dependencies;
   // A list of files to ignore when building.
-  std::vector<std::string> files_to_ignore;
+  std::set<std::filesystem::path> files_to_ignore;
   // The timestamp of when the metadata was last updated.
   uint64_t metadata_timestamp;
 
   // Whether this package should skip building.
   bool should_skip;
+  // Whether this package has no built output file.
+  bool no_output_file;
+
+  // The destination directory to copy the binary and all assets to after a
+  // successful build. Unsubstitued with placeholders.
+  std::filesystem::path destination_directory;
+
+  // The directories in the package to copy to the destination directory after a
+  // successful build.
+  std::vector<std::string> asset_directories;
 
   // Whether this metadata has consolidated information. The consolidated
   // fields contain the data consolidated from all of the dependencies that is

@@ -52,6 +52,8 @@ You can include pre-processor definitions:
 }
 ```
 
+If a define starts with `-`, then it removes this pre-processor definiton. For example, if a dependency exposes a public define but you want to remove it for your package. There is no support to redefine an undefined preprocessor definition.
+
 And include directories, which are relative to the package's root directory.
 ```
 {
@@ -123,6 +125,13 @@ Libraries usually want to expose include directories to any packages that depend
 }
 ```
 
+Sometimes a library doesn't produce executable code to be linked against, for example if a library consists of only assets or only headers. For these libraries you can define `no_output_file`:
+
+```
+{
+  no_output_file: 1
+}
+```
 ## Advanced topics
 
 ### How the Jsonnet configurations work
@@ -147,7 +156,9 @@ The supported placeholders are:
 * `${out}` - The output object file.
 * `${cdefines}` - The preprocessor defines, in standard C compiler style.
 * `${cincludes}` - The include directories, in standard C compiler style.
-* `${deps_out}` - The file to write the dependencies to, in standard C compiler style.
+* `${deps file}` - The file to write the dependencies to, in standard C compiler style.
+* `${package name}` - The name of the currently building package.
+* `${temp directory}` - The path of the temp directory during this build. This is not unique to the package.
 
 The linker command can also be overriden:
 
@@ -173,6 +184,7 @@ Sometimes you might want a "universe" of packages to be isolated from the rest o
 The intention is that the universe may want to override the build commands and package directories in a way that's completely different to building general packages that will run on the host OS.
 
 You can also set the default architecture and operating system with, so that you do not have to provide `--os=` and `--arch=` each time you run `rebs`:
+
 ```
 {
   default_os: "bare-metal",
@@ -181,6 +193,9 @@ You can also set the default architecture and operating system with, so that you
 ```
 
 (Note that the `.universe.rebs.jsonet` will be parsed using the host's architecture and OS, but then the `default_os` and `default_arch` will be used parsing `.package.rebs.jsonet`.)
+
+### Global run commands
+In your `.universe.rebs.jsonnet` or `~/.rebs.jsonnet` you can specify a `global_run_command`, which is a command that is ran after all packages are built. When a `global_run_command` is specified, this command is ran once, rather than attempting to execute each built application. The intent of this command is to provide a custom command to start an emulator or other environment.
 
 ### Excluding source files to build.
 You can files to exclude, relative to the package's root directory, using regular expressions:
@@ -195,6 +210,38 @@ You can files to exclude, relative to the package's root directory, using regula
 
 In the above example, `/sources/math/cos-arm.S` will not get built, but `/sources/math/cos-x86.S` will get built. The intention is that you might want to section off code that is specific to certain architectures or operating systems.
 
+### Destination directory
+You can specify a destination directory to copy the built binary and any assets to. For example:
+
+```
+{
+  destination_directory: "${temp directory}/fs/Applications/${package name}",
+}
+```
+
+### Assets
+Assets are files that are copied from the package to the destination directory. Files are copied if the source is newer than the destination. Deleted files in the source do not get removed on subsequent runs.
+
+```
+{
+  asset_directories: [
+    "Assets"
+  ],
+}
+```
+
+### Ignoring files
+You can choose to ignore to build certain files. The paths are relative to the package's root directory.
+
+```
+{
+  files_to_ignore: [
+    "Source/abc.cc",
+    "Source/def.cc",
+  ],
+}
+```
+
 ### Other usage
 Run `rebs --help` for complete usage.
 
@@ -208,6 +255,12 @@ You should also have the following tools installed:
 * Some kind of C++2x compatible compiler (I recommend [clang](https://clang.llvm.org/).)
 * [Jsonett](https://jsonnet.org/)
 
+### POSIX
+On a POSIX system, a simple way to build and install REBS is to call:
+
+```
+make && sudo cp rebs /usr/local/bin/rebs
+```
 
 ## Contributing
 See [docs/contributing.md](docs/contributing.md) for information on contributing.

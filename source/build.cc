@@ -76,7 +76,7 @@ Stage GetLinkerStage(const PackageMetadata& metadata) {
 }
 
 // Recursively loops over a directory of source files.
-void ForEachSourceFile(
+void ForEachFile(
     const std::filesystem::path& source_directory,
     const std::filesystem::path& output_directory,
     const std::function<void(const std::filesystem::path&,
@@ -90,9 +90,9 @@ void ForEachSourceFile(
     if (filename.size() == 0 || filename[0] == '.') continue;
 
     if (dir_entry.is_directory()) {
-      ForEachSourceFile(path, output_directory / filename, on_each_file);
+      ForEachFile(path, output_directory / filename, on_each_file);
     } else {
-      on_each_file(path, output_directory / (filename + ".o"));
+      on_each_file(path, output_directory / filename);
     }
   }
 }
@@ -105,9 +105,37 @@ void ForEachSourceFile(
   std::filesystem::path objects_directory =
       metadata.temp_directory / kObjectsSubDirectory;
   for (const auto& source_directory : metadata.source_directories) {
-    ForEachSourceFile(metadata.package_path / source_directory,
-                      objects_directory / source_directory, on_each_file);
+    ForEachFile(metadata.package_path / source_directory,
+                objects_directory / source_directory, on_each_file);
   }
+}
+
+void ForEachAssetFile(
+    const PackageMetadata& metadata,
+    const std::function<void(const std::filesystem::path&,
+                             const std::filesystem::path&)>& on_each_file) {
+  for (const auto& asset_directory : metadata.asset_directories) {
+    ForEachFile(metadata.package_path / asset_directory,
+                metadata.destination_directory, on_each_file);
+  }
+}
+
+void CopyAssetIfNewer(const std::filesystem::path& source,
+                      const std::filesystem::path& destination) {
+  if (GetTimestampOfFile(source) <= GetTimestampOfFile(destination)) return;
+
+  auto command = std::make_unique<DeferredCommand>();
+  command->command =
+      (std::stringstream() << "cp " << std::quoted(source.c_str()) << " "
+                           << std::quoted(destination.c_str()))
+          .str();
+  QueueCommand(Stage::CopyAssets, std::move(command));
+
+  SetTimestampOfFileToNow(destination);
+}
+
+void CopyAssetFilesForPackage(PackageMetadata& metadata) {
+  ForEachAssetFile(metadata, CopyAssetIfNewer);
 }
 
 // Builds a package, and returns if it was successful.
@@ -129,89 +157,116 @@ bool BuildPackage(const std::string& package_name) {
       if (!BuildPackage(dependency)) return false;
   }
 
-  std::string c_includes = BuildCIncludes(*metadata);
-  std::string c_defines = BuildCDefines(*metadata);
-  std::vector<std::filesystem::path> object_files_to_link;
+  if (!metadata->destination_directory.empty())
+    EnsureDirectoriesAndParentsExist(metadata->destination_directory);
 
-  bool has_something_been_built = false;
+  if (!metadata->no_output_file) {
+    std::vector<std::filesystem::path> object_files_to_link;
 
-  ForEachSourceFile(*metadata, [metadata, &c_includes, &c_defines,
-                                &object_files_to_link,
-                                &has_something_been_built](
-                                   const std::filesystem::path& source_file,
-                                   const std::filesystem::path& object_file) {
-    auto build_command_itr = metadata->build_commands_by_file_extension.find(
-        source_file.extension());
-    if (build_command_itr == metadata->build_commands_by_file_extension.end())
-      return;
+    SetPlaceholder("package name", std::string(package_name));
+    SetPlaceholder("cdefines", BuildCDefines(*metadata));
+    SetPlaceholder("cincludes", BuildCIncludes(*metadata));
 
-    object_files_to_link.push_back(object_file);
+    bool has_something_been_built = false;
 
-    if (!AreDependenciesNewerThanFile(
-            metadata->package_id, metadata->metadata_timestamp, object_file)) {
-      return;
+    ForEachSourceFile(
+        *metadata, [metadata, &object_files_to_link, &has_something_been_built](
+                       const std::filesystem::path& source_file,
+                       const std::filesystem::path& destination_file) {
+          auto build_command_itr =
+              metadata->build_commands_by_file_extension.find(
+                  source_file.extension());
+          if (build_command_itr ==
+              metadata->build_commands_by_file_extension.end())
+            return;
+
+          if (metadata->files_to_ignore.find(source_file) !=
+              metadata->files_to_ignore.end()) {
+            return;
+          }
+
+          auto object_file = std::string(destination_file) + ".o";
+
+          object_files_to_link.push_back(object_file);
+
+          if (!AreDependenciesNewerThanFile(metadata->package_id,
+                                            metadata->metadata_timestamp,
+                                            object_file)) {
+            return;
+          }
+
+          // if (source_file.extension)
+          auto command = std::make_unique<DeferredCommand>();
+          command->command = build_command_itr->second;
+          SetPlaceholder(
+              "out",
+              (std::stringstream() << std::quoted(object_file.c_str())).str());
+          SetPlaceholder(
+              "in",
+              (std::stringstream() << std::quoted(source_file.c_str())).str());
+          ReplacePlaceholdersInString(command->command);
+          command->source_file = source_file;
+          command->destination_file = object_file;
+          command->package_id = metadata->package_id;
+          QueueCommand(Stage::Compile, std::move(command));
+          has_something_been_built = true;
+        });
+
+    size_t object_file_timestamp = 0;
+    if (DoesFileExist(metadata->output_object) && !has_something_been_built) {
+      object_file_timestamp = GetTimestampOfFile(metadata->output_object);
+    } else {
+      has_something_been_built = true;
     }
 
-    // if (source_file.extension)
-    auto command = std::make_unique<DeferredCommand>();
-    command->command = build_command_itr->second;
-    ReplaceSubstringInString(command->command, "${cdefines}", c_includes);
-    ReplaceSubstringInString(command->command, "${cincludes}", c_defines);
-    ReplaceSubstringInString(
-        command->command, "${out}",
-        (std::stringstream() << std::quoted(object_file.c_str())).str());
-    ReplaceSubstringInString(
-        command->command, "${in}",
-        (std::stringstream() << std::quoted(source_file.c_str())).str());
-    command->source_file = source_file;
-    command->destination_file = object_file;
-    command->package_id = metadata->package_id;
-    QueueCommand(Stage::Compile, std::move(command));
-    has_something_been_built = true;
-  });
-
-  size_t object_file_timestamp = 0;
-  if (DoesFileExist(metadata->output_object) && !has_something_been_built) {
-    object_file_timestamp = GetTimestampOfFile(metadata->output_object);
-  } else {
-    has_something_been_built = true;
-  }
-
-  for (const auto& library_object : metadata->consolidated_library_objects) {
-    object_files_to_link.push_back(library_object);
-    if (!has_something_been_built) {
-      size_t library_timestamp = GetTimestampOfFile(library_object);
-      if (library_timestamp == 0 ||
-          library_timestamp > metadata->metadata_timestamp ||
-          library_timestamp > object_file_timestamp) {
-        has_something_been_built = true;
+    for (const auto& library_object : metadata->consolidated_library_objects) {
+      object_files_to_link.push_back(library_object);
+      if (!has_something_been_built) {
+        size_t library_timestamp = GetTimestampOfFile(library_object);
+        if (library_timestamp == 0 ||
+            library_timestamp > metadata->metadata_timestamp ||
+            library_timestamp > object_file_timestamp) {
+          has_something_been_built = true;
+        }
       }
     }
+
+    if (has_something_been_built) {
+      SetTimestampOfFileToNow(metadata->output_object);
+      auto command = std::make_unique<DeferredCommand>();
+      command->command = metadata->linker_command;
+      SetPlaceholder("out", (std::stringstream()
+                             << std::quoted(metadata->output_object.c_str()))
+                                .str());
+      SetPlaceholder("in",
+                     BuildStringOfFilesFromVectorOfFiles(object_files_to_link));
+      ReplacePlaceholdersInString(command->command);
+      command->destination_file = metadata->output_object;
+      command->package_id = metadata->package_id;
+
+      QueueCommand(GetLinkerStage(*metadata), std::move(command));
+    }
   }
 
-  if (has_something_been_built) {
-    SetTimestampOfFileToNow(metadata->output_object);
-    auto command = std::make_unique<DeferredCommand>();
-    command->command = metadata->linker_command;
-    ReplaceSubstringInString(
-        command->command, "${out}",
-        (std::stringstream() << std::quoted(metadata->output_object.c_str()))
-            .str());
-    ReplaceSubstringInString(
-        command->command, "${in}",
-        BuildStringOfFilesFromVectorOfFiles(object_files_to_link));
-    command->destination_file = metadata->output_object;
-    command->package_id = metadata->package_id;
-
-    QueueCommand(GetLinkerStage(*metadata), std::move(command));
-  }
+  // Copy assets to the destination directory.
+  if (!metadata->destination_directory.empty() &&
+      !metadata->asset_directories.empty())
+    CopyAssetFilesForPackage(*metadata);
 
   return true;
+}
+
+// Initialize placeholder strings.
+void InitializePlaceholders() {
+  // Prevents ${deps file} from being substituted because it's replaced right
+  // before executing with a thread-specific file path.
+  SetPlaceholder("deps file", "${deps file}");
 }
 
 }  // namespace
 
 bool BuildPackages() {
+  InitializePlaceholders();
   bool successful = true;
   ForEachInputPackage([&successful](const std::string& package_path) {
     successful &= BuildPackage(GetPackageNameFromPath(package_path));

@@ -14,6 +14,53 @@
 
 #include "string_replace.h"
 
+#include <iostream>
+#include <map>
+#include <string>
+#include <string_view>
+
+namespace {
+
+// A map of placeholders to their replacement values.
+std::map<std::string, std::string> placeholders_and_values;
+
+} // namespace
+
+// Registers a placeholder for use with `ReplacePlaceholdersInString`. The
+// placeholder excludes the "${}". e.g. "${abc}" will be just "abc".
+void SetPlaceholder(std::string placeholder, std::string_view str) {
+  placeholders_and_values[placeholder] = std::string(str);
+}
+
+// Replaces all registered placeholders in a string with a new value.
+void ReplacePlaceholdersInString(std::string& str) {
+  size_t pos = 0; // Current position in the string.
+    
+  while ((pos = str.find("${", pos)) != std::string::npos) {
+      size_t end_pos = str.find("}", pos + 2); // Find closing "}"
+
+      if (end_pos != std::string::npos) {
+          // Get the placeholder name.
+          std::string placeholder = str.substr(pos + 2, end_pos - pos - 2);
+          // Look up replacement value.
+          const auto& it = placeholders_and_values.find(placeholder);
+
+          if (it != placeholders_and_values.end()) {
+              // Replace placeholder with the replacement value.
+              str.replace(pos, end_pos - pos + 1, it->second);
+               // Move past the replacement.
+              pos += it->second.length();
+          } else {
+              // Replace the placeholder with an empty string.
+              std::cerr << "Encountered unknown placeholder: ${" << placeholder << "}" << std::endl;
+              str.replace(pos, end_pos - pos + 1, "");
+          }
+      } else {
+          break; // Invalid placeholder format
+      }
+  }
+}
+
 // Replaces a placeholder in a string with a new value. Returns if the
 // placeholder was found.
 bool ReplaceSubstringInString(std::string& str, const std::string& placeholder,

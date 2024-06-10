@@ -1,4 +1,4 @@
-CC=clang++
+CC=cc
 CXXFLAGS=-std=c++20
 SRC=source
 TEMP=temp
@@ -9,7 +9,7 @@ OBJS=$(SRCS:$(SRC)/%.cc=%)
 all: rebs
 
 rebs: $(OBJS)
-	$(CC) -o rebs $(OBJS:%=$(TEMP)/%)
+	$(CC) $(CXXFLAGS) -lc++ -o rebs $(OBJS:%=$(TEMP)/%)
 
 %: $(SRC)/%.cc
 	@mkdir -p $(TEMP)

@@ -123,7 +123,7 @@ bool ExecuteStage(Stage stage,
         if (record_dependencies) {
           std::string command_str = command->command;
           bool using_dependency_file = ReplaceSubstringInString(
-              command_str, "${deps_out}", quoted_dependency_file);
+              command_str, "${deps file}", quoted_dependency_file);
           if (ExecuteCommand(command_str, &output)) {
             std::vector<std::filesystem::path> dependencies;
             if (using_dependency_file) {

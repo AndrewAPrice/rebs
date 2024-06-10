@@ -38,6 +38,8 @@ namespace {
 
 // The name of the config file.
 constexpr char kConfigFile[] = ".rebs.jsonnet";
+// The name of the config file for a universe.
+constexpr char kUniverseConfigFile[] = ".universe.rebs.jsonnet";
 // The name of the config file for a package.
 constexpr char kPackageConfigFile[] = ".package.rebs.jsonnet";
 // The name of the generated json file.
@@ -61,15 +63,15 @@ local optimization_level = std.extVar("optimization_level");
       else
         "",
     local cpp_command = cpp_compiler + c_optimizations +
-      " -c -std=c++20 ${cdefines} ${cincludes} -MD -MF ${deps_out} -o ${out} ${in} ",
+      " -c -std=c++20 ${cdefines} ${cincludes} -MD -MF ${deps file} -o ${out} ${in} ",
 
     "cc": cpp_command,
     "cpp": cpp_command,
     "c": cpp_compiler + c_optimizations +
-      " -c -std=c17 ${cdefines} ${cincludes} -MD -MF ${deps_out} -o ${out} ${in}",
+      " -c -std=c17 ${cdefines} ${cincludes} -MD -MF ${deps file} -o ${out} ${in}",
 
     // Intel ASM:
-    "asm": cpp_compiler + c_optimizations + " -c -MD -MF ${deps_out} -o ${out} ${in}",
+    "asm": cpp_compiler + c_optimizations + " -c -MD -MF ${deps file} -o ${out} ${in}",
 
     // AT&T ASM:
     local att_asm = 'nasm -o ${out} ${in}',
@@ -94,6 +96,13 @@ local optimization_level = std.extVar("optimization_level");
       "lib"
     else
       "",
+  "include_priority":
+    if self.package_type == "application" then
+      1000
+    else if self.package_type == "library" then
+      100
+    else
+      1000,
   "source_directories": [
     ""
   ],
@@ -122,6 +131,11 @@ uint64_t global_config_file_timestamp;
 
 std::vector<std::filesystem::path> package_directories;
 int number_of_parallel_tasks;
+
+// There is a run command to use after every package has been built. If one is
+// set, then this command is ran instead of attempting to execute each
+// individual package.
+std::string global_run_command;
 
 // Returns the user's home directory.
 std::filesystem::path GetHomeDirectory() {
@@ -208,7 +222,8 @@ std::vector<std::string> GetGlobalConfigFiles() {
   std::vector<std::string> config_files = {GetOrCreateRootConfigFile()};
 
   // See if there's another config file at this level.
-  if (DoesFileExist(kConfigFile)) config_files.push_back(kConfigFile);
+  if (DoesFileExist(kUniverseConfigFile))
+    config_files.push_back(kUniverseConfigFile);
   return config_files;
 }
 
@@ -301,7 +316,13 @@ bool LoadGlobalConfigFile() {
 
   if (global_config_file_timestamp > GetTimestampOfFile(generated_json_file)) {
     // One of the files is newer than the generated one.
-    if (!GenerateGlobalJsonFile(generated_json_file)) return false;
+    if (!GenerateGlobalJsonFile(generated_json_file)) {
+      std::cerr << "Could not generate parse global config files:" << std::endl;
+      for (const auto& config_file : global_config_files)
+        std::cerr << " " << config_file << std::endl;
+
+      return false;
+    }
   }
 
   std::ifstream file(generated_json_file);
@@ -316,6 +337,9 @@ void ParseGlobalConfig() {
   for (const auto& directory : global_config_file["package_directories"]) {
     package_directories.push_back(directory.template get<std::string>());
   }
+  auto global_run_command_val = global_config_file["global_run_command"];
+  if (global_run_command_val.is_string())
+    global_run_command = global_run_command_val.template get<std::string>();
 }
 
 }  // namespace
@@ -327,7 +351,9 @@ bool LoadConfigFile() {
   return true;
 }
 
-bool IsThereALocalConfig() { return DoesFileExist(kConfigFile); }
+bool IsThereALocalConfig() { return DoesFileExist(kUniverseConfigFile); }
+
+std::string_view GetGlobalRunCommand() { return global_run_command; }
 
 int GetNumberOfParallelTasks() { return number_of_parallel_tasks; }
 
@@ -355,8 +381,10 @@ std::optional<::nlohmann::json> LoadConfigFileForPackage(
   std::filesystem::path generated_config_path = temp_path / kPackageConfigFile;
   if (timestamp > GetTimestampOfFile(generated_config_path)) {
     // One of the files is newer than the generated one.
-    if (!GenerateConfigFileForPackage(config_path, generated_config_path))
+    if (!GenerateConfigFileForPackage(config_path, generated_config_path)) {
+      std::cerr << "Cannot parse config file for " << package_name << std::endl;
       return std::nullopt;
+    }
   }
 
   std::ifstream file(generated_config_path);

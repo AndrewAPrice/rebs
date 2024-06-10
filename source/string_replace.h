@@ -15,8 +15,16 @@
 #pragma once
 
 #include <string>
+#include <string_view>
+
+// Registers a placeholder for use with `ReplacePlaceholdersInString`. The
+// placeholder excludes the "${}". e.g. "${abc}" will be just "abc".
+void SetPlaceholder(std::string placeholder, std::string_view str);
+
+// Replaces all registered placeholders in a string with a new value.
+void ReplacePlaceholdersInString(std::string& str);
 
 // Replaces a placeholder in a string with a new value. Returns if the
-// placeholder was found.
+// placeholder was found. The placeholder is in full format, e.g. "${abc}"
 bool ReplaceSubstringInString(std::string& str, const std::string& placeholder,
                               const std::string& new_value);

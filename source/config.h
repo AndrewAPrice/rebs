@@ -37,8 +37,12 @@ void ForEachPackageDirectory(
 // isolated universe.
 bool IsThereALocalConfig();
 
+// Returns the global run command if one is set, otherwise a blank string.
+std::string_view GetGlobalRunCommand();
+
 // Loads a config flie for a package. Populates the timestamp with when it
 // was changed.
 std::optional<::nlohmann::json> LoadConfigFileForPackage(
     const std::string& package_name, const std::filesystem::path& package_path,
     uint64_t& timestamp);
+

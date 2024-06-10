@@ -21,11 +21,13 @@
 #include <string>
 
 #include "command_queue.h"
+#include "config.h"
 #include "deferred_command.h"
 #include "invocation.h"
 #include "package_metadata.h"
 #include "packages.h"
 #include "stage.h"
+#include "string_replace.h"
 
 namespace {
 
@@ -49,9 +51,8 @@ bool AddPackageToRun(const std::string& package_to_build) {
   return true;
 }
 
-}  // namespace
-
-bool RunPackages() {
+// Runs each application package individually.
+bool RunEachPackageIndividually() {
   int packages_to_run = 0;
   ForEachInputPackage([&packages_to_run](const std::string& package_path) {
     if (AddPackageToRun(GetPackageNameFromPath(package_path)))
@@ -60,6 +61,27 @@ bool RunPackages() {
   if (packages_to_run == 0) {
     std::cerr << "Nothing to run." << std::endl;
     return false;
+  }
+  return true;
+}
+
+// Runs the global run command.
+void RunGlobalRunCommand(std::string_view global_run_command) {
+  auto command = std::make_unique<DeferredCommand>();
+  command->command = std::string(global_run_command);
+  ReplacePlaceholdersInString(command->command);
+  QueueCommand(Stage::Run, std::move(command));
+}
+
+}  // namespace
+
+bool RunPackages() {
+  std::string_view global_run_command = GetGlobalRunCommand();
+
+  if (global_run_command.empty()) {
+    return RunEachPackageIndividually();
+  } else {
+    RunGlobalRunCommand(global_run_command);
   }
 
   return true;
