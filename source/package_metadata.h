@@ -40,14 +40,20 @@ struct PackageMetadata {
   std::map<std::string, std::string> build_commands_by_file_extension;
   // The linker command to build this package.
   std::string linker_command;
+  // The linker command to build a statically linked variant of this package.
+  std::string static_linker_command;
 
   // The path of the package's root directory.
   std::filesystem::path package_path;
   // The path of the temporary directory for the intermediate build files for
   // this package.
   std::filesystem::path temp_directory;
+  // The filename of the output object.
+  std::string output_filename;
   // The path to the final output object once this package is built.
-  std::filesystem::path output_object;
+  std::filesystem::path output_path;
+  // The path to the statically linked library. Only set for library packages.
+  std::filesystem::path statically_linked_library_output_path;
 
   // A list of source directories. These directories are recursively scanned for
   // source files to build.
@@ -77,6 +83,9 @@ struct PackageMetadata {
   bool should_skip;
   // Whether this package has no built output file.
   bool no_output_file;
+  // Whether to statically link this application against its dependent
+  // libraries. This only applies to application packages.
+  bool statically_link;
 
   // The destination directory to copy the binary and all assets to after a
   // successful build. Unsubstitued with placeholders.
@@ -97,9 +106,12 @@ struct PackageMetadata {
   std::vector<std::string> consolidated_dependencies;
   // The consolidated list of directoriees to scan for 'include' files.
   std::vector<std::filesystem::path> consolidated_includes;
-  // The consolidated list of library objects to link. This is only set if this
-  // package is an application.
-  std::vector<std::filesystem::path> consolidated_library_objects;
+  // The consolidated list of library objects to statically link against. This
+  // is only set if this package is an application and is statically linked.
+  std::vector<std::filesystem::path> statically_linked_library_objects;
+  // The consolidated list of libraries to dynamically link against. This is
+  // only set if the package is an applicaiton and is dynamically linked.
+  std::vector<std::string> dynamically_linked_libaries;
 };
 
 // Returns the metadata for a package.

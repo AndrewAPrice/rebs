@@ -39,3 +39,9 @@ void ForEachKnownPackage(
 // package's path.
 void ForEachInputPackage(
     const std::function<void(const std::string&)>& on_each_package);
+
+// Returns the path to where the built dynamically linked libraries live.
+const std::filesystem::path& GetDynamicLibraryDirectoryPath();
+
+// Returns the path to where the build statically linked libraries live.
+const std::filesystem::path& GetStaticLibraryDirectoryPath();

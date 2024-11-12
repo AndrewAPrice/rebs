@@ -69,6 +69,14 @@ std::string BuildStringOfFilesFromVectorOfFiles(
   return str.str();
 }
 
+std::string BuildStringOfStringsFromVectorOfStringAndPrefix(
+    std::string_view prefix, const std::vector<std::string>& paths) {
+  std::stringstream str;
+  for (const auto& path : paths)
+    str << " " << prefix << std::quoted(path.c_str());
+  return str.str();
+}
+
 // Returns the linker stage to use for a given package based on its metadata.
 Stage GetLinkerStage(const PackageMetadata& metadata) {
   if (metadata.IsApplication()) return Stage::LinkApplication;
@@ -167,10 +175,10 @@ bool BuildPackage(const std::string& package_name) {
     SetPlaceholder("cdefines", BuildCDefines(*metadata));
     SetPlaceholder("cincludes", BuildCIncludes(*metadata));
 
-    bool has_something_been_built = false;
+    bool requires_linking = false;
 
     ForEachSourceFile(
-        *metadata, [metadata, &object_files_to_link, &has_something_been_built](
+        *metadata, [metadata, &object_files_to_link, &requires_linking](
                        const std::filesystem::path& source_file,
                        const std::filesystem::path& destination_file) {
           auto build_command_itr =
@@ -209,42 +217,101 @@ bool BuildPackage(const std::string& package_name) {
           command->destination_file = object_file;
           command->package_id = metadata->package_id;
           QueueCommand(Stage::Compile, std::move(command));
-          has_something_been_built = true;
+          requires_linking = true;
         });
 
     size_t object_file_timestamp = 0;
-    if (DoesFileExist(metadata->output_object) && !has_something_been_built) {
-      object_file_timestamp = GetTimestampOfFile(metadata->output_object);
+    if (DoesFileExist(metadata->output_path) && !requires_linking) {
+      object_file_timestamp = GetTimestampOfFile(metadata->output_path);
     } else {
-      has_something_been_built = true;
+      requires_linking = true;
     }
 
-    for (const auto& library_object : metadata->consolidated_library_objects) {
+    for (const auto& library_object :
+         metadata->statically_linked_library_objects) {
       object_files_to_link.push_back(library_object);
-      if (!has_something_been_built) {
+      if (!requires_linking) {
         size_t library_timestamp = GetTimestampOfFile(library_object);
         if (library_timestamp == 0 ||
             library_timestamp > metadata->metadata_timestamp ||
             library_timestamp > object_file_timestamp) {
-          has_something_been_built = true;
+          requires_linking = true;
         }
       }
     }
 
-    if (has_something_been_built) {
-      SetTimestampOfFileToNow(metadata->output_object);
-      auto command = std::make_unique<DeferredCommand>();
-      command->command = metadata->linker_command;
-      SetPlaceholder("out", (std::stringstream()
-                             << std::quoted(metadata->output_object.c_str()))
-                                .str());
-      SetPlaceholder("in",
-                     BuildStringOfFilesFromVectorOfFiles(object_files_to_link));
-      ReplacePlaceholdersInString(command->command);
-      command->destination_file = metadata->output_object;
-      command->package_id = metadata->package_id;
+    std::filesystem::path shared_library_path;
+    if (metadata->IsLibrary())
+      shared_library_path = GetDynamicLibraryDirectoryPath() /
+                            (std::string("lib") + package_name + ".so");
+    if (!requires_linking && !shared_library_path.empty() &&
+        !DoesFileExist(shared_library_path)) {
+      // The  shared variant does not exists and needs to be created.
+      requires_linking = true;
+    }
 
-      QueueCommand(GetLinkerStage(*metadata), std::move(command));
+    if (requires_linking) {
+      std::string input_files =
+          BuildStringOfFilesFromVectorOfFiles(object_files_to_link);
+      SetPlaceholder("in", input_files);
+
+      if (metadata->IsApplication()) {
+        SetTimestampOfFileToNow(metadata->output_path);
+        auto command = std::make_unique<DeferredCommand>();
+        command->command = metadata->statically_link
+                               ? metadata->static_linker_command
+                               : metadata->linker_command;
+        SetPlaceholder("out", (std::stringstream()
+                               << std::quoted(metadata->output_path.c_str()))
+                                  .str());
+        if (!metadata->dynamically_linked_libaries.empty()) {
+          SetPlaceholder("shared_libraries",
+                         BuildStringOfStringsFromVectorOfStringAndPrefix(
+                             "-l ", metadata->dynamically_linked_libaries));
+        }
+        ReplacePlaceholdersInString(command->command);
+        command->destination_file = metadata->output_path;
+        command->package_id = metadata->package_id;
+
+        QueueCommand(GetLinkerStage(*metadata), std::move(command));
+      } else if (metadata->IsLibrary()) {
+        // Dynamically link.
+        SetTimestampOfFileToNow(shared_library_path);
+        auto command = std::make_unique<DeferredCommand>();
+        command->command = metadata->linker_command;
+        SetPlaceholder("out", (std::stringstream()
+                               << std::quoted(shared_library_path.c_str()))
+                                  .str());
+        ReplacePlaceholdersInString(command->command);
+        command->destination_file = shared_library_path;
+        command->package_id = metadata->package_id;
+        QueueCommand(GetLinkerStage(*metadata), std::move(command));
+
+        // Copy the file to the destination directory.
+        SetTimestampOfFileToNow(metadata->output_filename);
+        command = std::make_unique<DeferredCommand>();
+        command->command =
+            (std::stringstream() << "cp " << std::quoted(shared_library_path.c_str()) << " "
+                                 << std::quoted(metadata->output_filename.c_str()))
+                .str();
+        command->destination_file = metadata->output_filename;
+        command->package_id = metadata->package_id;
+
+        QueueCommand(Stage::CopyAssets, std::move(command));
+
+        // Statically link.
+        SetTimestampOfFileToNow(metadata->statically_linked_library_output_path);
+        command = std::make_unique<DeferredCommand>();
+        command->command = metadata->static_linker_command;
+        SetPlaceholder("out", (std::stringstream()
+                               << std::quoted(metadata->statically_linked_library_output_path.c_str()))
+                                  .str());
+        ReplacePlaceholdersInString(command->command);
+        command->destination_file = metadata->statically_linked_library_output_path;
+        command->package_id = metadata->package_id;
+
+        QueueCommand(GetLinkerStage(*metadata), std::move(command));
+      }
     }
   }
 

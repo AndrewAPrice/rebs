@@ -86,8 +86,13 @@ bool ParseConfigIntoMetadata(const std::string& package_name,
   }
 
   auto& linker_command = config["linker_command"];
-  if (linker_command.is_string()) {
+  if (linker_command.is_string())
     metadata.linker_command = linker_command.template get<std::string>();
+
+  auto& static_linker_command = config["static_linker_command"];
+  if (static_linker_command.is_string()) {
+    metadata.static_linker_command =
+        static_linker_command.template get<std::string>();
   }
 
   auto& no_output_file = config["no_output_file"];
@@ -125,6 +130,10 @@ bool ParseConfigIntoMetadata(const std::string& package_name,
   auto& should_skip = config["should_skip"];
   if (should_skip.is_number_integer())
     metadata.should_skip = should_skip.template get<int>();
+
+  auto& statically_link = config["statically_link"];
+  if (statically_link.is_number_integer())
+    metadata.statically_link = statically_link.template get<int>();
 
   auto& include_priority = config["include_priority"];
   if (include_priority.is_number_integer()) {
@@ -164,17 +173,33 @@ PackageMetadata* GetUnconsolidatedMetadataForPackage(
   if (!ParseConfigIntoMetadata(package_name, *config, *metadata))
     return nullptr;
 
-  if (metadata->destination_directory.empty()) {
-    metadata->output_object = metadata->temp_directory / package_name;
-  } else {
-    metadata->output_object = metadata->destination_directory / package_name;
-  }
-  metadata->package_id = GetIDOfPackageFromPath(package_path);
+  metadata->output_filename = package_name;
   auto& output_extension = (*config)["output_extension"];
   if (output_extension.is_string()) {
     std::string extension = output_extension.template get<std::string>();
-    if (extension.length() > 0) metadata->output_object += "." + extension;
+    if (extension.length() > 0) metadata->output_filename += "." + extension;
   }
+
+  auto& output_prefix = (*config)["output_prefix"];
+  if (output_prefix.is_string()) {
+    std::string prefix = output_prefix.template get<std::string>();
+    if (prefix.length() > 0)
+      metadata->output_filename = prefix + metadata->output_filename;
+  }
+
+  if (metadata->IsLibrary()) {
+    metadata->statically_linked_library_output_path =
+        GetStaticLibraryDirectoryPath() / metadata->output_filename;
+  }
+
+  if (metadata->destination_directory.empty()) {
+    metadata->output_path =
+        metadata->temp_directory / metadata->output_filename;
+  } else {
+    metadata->output_path =
+        metadata->destination_directory / metadata->output_filename;
+  }
+  metadata->package_id = GetIDOfPackageFromPath(package_path);
 
   PackageMetadata* metadata_ptr = metadata.get();
   metadata_by_package_name[package_name] = std::move(metadata);
@@ -183,8 +208,8 @@ PackageMetadata* GetUnconsolidatedMetadataForPackage(
 
 bool ConsolidateMetadataForPackage(const std::string& package_name,
                                    PackageMetadata& metadata) {
-  // Walk through each encountered dependencies and add anything they expose to
-  // this package.
+  // Walk through each encountered dependencies and add anything they expose
+  // to this package.
   std::set<std::string> encountered_dependencies;
   encountered_dependencies.insert(package_name);
 
@@ -272,10 +297,13 @@ bool ConsolidateMetadataForPackage(const std::string& package_name,
     }
 
     // Add values from this package.
-
     if (!child_metadata->no_output_file && metadata.IsApplication()) {
-      metadata.consolidated_library_objects.push_back(
-          child_metadata->output_object);
+      if (metadata.statically_link) {
+        metadata.statically_linked_library_objects.push_back(
+            child_metadata->statically_linked_library_output_path);
+      } else {
+        metadata.dynamically_linked_libaries.push_back(dependency);
+      }
     }
 
     for (const auto& define : child_metadata->public_defines)

@@ -17,16 +17,37 @@
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 
 #include "config.h"
 #include "invocation.h"
+#include "string_replace.h"
+#include "temp_directory.h"
 
 namespace {
 
-std::map<std::string, std::filesystem::path> packages_to_paths;
+// The name of the sub directory inside the temporary directory where to place
+// the dynamically linked shared libraries.
+constexpr char kDynamicLibrariesSubdirectoryName[] = "dynamic_libraries";
+
+// The name of the sub directory inside the temporary directory where ot place
+// the statically linked shared libraries.
+constexpr char kStaticLibrariesSubdirectoryName[] = "static_libraries";
+
 // Empty string, so "" can be returned as a const&.
 std::filesystem::path kEmptyPath = "";
+
+// Map of packages to where the packages live.
+std::map<std::string, std::filesystem::path> packages_to_paths;
+
+// The path of the temporary directory where the dynamically built libraries
+// live.
+std::filesystem::path dynamic_library_directory_path;
+
+// The path of the temporary directory where the statically buiilt libraries
+// live.
+std::filesystem::path static_library_directory_path;
 
 // Returns if the provided package looks like a path.
 bool IsPackageAPath(const std::string& name_or_path) {
@@ -78,6 +99,18 @@ void InitializePackages() {
       RegisterPackagePath(path);
     }
   });
+
+  dynamic_library_directory_path =
+      GetTempDirectoryPath() / kDynamicLibrariesSubdirectoryName;
+  EnsureDirectoriesAndParentsExist(dynamic_library_directory_path);
+  SetPlaceholder("shared_library_path",
+                 (std::stringstream()
+                  << std::quoted(dynamic_library_directory_path.c_str()))
+                     .str());
+
+  static_library_directory_path =
+      GetTempDirectoryPath() / kStaticLibrariesSubdirectoryName;
+  EnsureDirectoriesAndParentsExist(static_library_directory_path);
 }
 
 std::filesystem::path GetPackagePath(const std::string& name_or_path) {
@@ -132,4 +165,12 @@ void ForEachInputPackage(
       if (!package_path.empty()) on_each_package(package_path);
     });
   }
+}
+
+const std::filesystem::path& GetDynamicLibraryDirectoryPath() {
+  return dynamic_library_directory_path;
+}
+
+const std::filesystem::path& GetStaticLibraryDirectoryPath() {
+  return static_library_directory_path;
 }

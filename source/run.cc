@@ -44,7 +44,7 @@ bool AddPackageToRun(const std::string& package_to_build) {
 
   auto command = std::make_unique<DeferredCommand>();
   command->command =
-      (std::stringstream() << std::quoted(metadata->output_object.c_str()))
+      (std::stringstream() << std::quoted(metadata->output_path.c_str()))
           .str();
   QueueCommand(Stage::Run, std::move(command));
 
