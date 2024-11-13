@@ -288,13 +288,13 @@ bool BuildPackage(const std::string& package_name) {
         QueueCommand(GetLinkerStage(*metadata), std::move(command));
 
         // Copy the file to the destination directory.
-        SetTimestampOfFileToNow(metadata->output_filename);
+        SetTimestampOfFileToNow(metadata->output_path);
         command = std::make_unique<DeferredCommand>();
         command->command =
             (std::stringstream() << "cp " << std::quoted(shared_library_path.c_str()) << " "
-                                 << std::quoted(metadata->output_filename.c_str()))
+                                 << std::quoted(metadata->output_path.c_str()))
                 .str();
-        command->destination_file = metadata->output_filename;
+        command->destination_file = metadata->output_path;
         command->package_id = metadata->package_id;
 
         QueueCommand(Stage::CopyAssets, std::move(command));
