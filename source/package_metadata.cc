@@ -298,7 +298,7 @@ bool ConsolidateMetadataForPackage(const std::string& package_name,
 
     // Add values from this package.
     if (!child_metadata->no_output_file && metadata.IsApplication()) {
-      if (metadata.statically_link) {
+      if (metadata.statically_link || child_metadata->statically_link) {
         metadata.statically_linked_library_objects.push_back(
             child_metadata->statically_linked_library_output_path);
       } else {
