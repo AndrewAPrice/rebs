@@ -38,3 +38,6 @@ void ForEachRawInputPackage(
 // Returns whether the user requested that the invocation action be performed
 // for all known packages.
 bool RunOnAllKnownPackages();
+
+// Returns whether REBS should be verbose about the running commands.
+bool ShouldBeVerbose();

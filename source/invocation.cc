@@ -28,6 +28,7 @@ InvocationAction invocation_action = InvocationAction::Run;
 OptimizationLevel optimization_level = OptimizationLevel::Fast;
 std::vector<std::string> input_packages;
 bool all_known_packages = false;
+bool verbose = false;
 
 void PrintHelp() {
   std::cout << R"(Usage:
@@ -51,7 +52,8 @@ Invocation action arguments:
   --optimized - Build will all optimizations enabled.
 
  Other arguments:
-  --help - Print this message.
+  --verbose   - Be very verbose about the commands being ran and their output.
+  --help      - Print this message.
 )";
 }
 
@@ -67,6 +69,8 @@ bool ParseInvocation(int argc, char* argv[]) {
     if (argument[0] == '-') {
       if (argument == "--all") {
         all_known_packages = true;
+      } else if (argument == "--verbose") {
+        verbose = true;
       } else if (argument == "--build") {
         invocation_action = InvocationAction::Build;
       } else if (argument == "--clean") {
@@ -110,3 +114,5 @@ void ForEachRawInputPackage(
 }
 
 bool RunOnAllKnownPackages() { return all_known_packages; }
+
+bool ShouldBeVerbose() { return verbose; }

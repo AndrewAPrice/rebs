@@ -29,6 +29,7 @@
 #include "deferred_command.h"
 #include "dependencies.h"
 #include "execute.h"
+#include "invocation.h"
 #include "stage.h"
 #include "string_replace.h"
 #include "temp_directory.h"
@@ -52,26 +53,31 @@ int queued_commands_count = 0;
 bool needs_newline = true;
 
 // Run the commands sequentually, with no piping of the input/output.
-void RunCommands(
-    const std::vector<std::unique_ptr<DeferredCommand>>& commands) {
+void RunCommands(const std::vector<std::unique_ptr<DeferredCommand>>& commands,
+                 int& current_command_number) {
   if (needs_newline) {
     std::cout << kEraseLine << std::flush;
     needs_newline = false;
   }
-  for (const auto& command : commands) std::system(command->command.c_str());
-}
 
-std::string GetTempDependencyFilePath(int thread_id) {
-  return GetTempDirectoryPath() /
-         (std::string(kDependencyFilePrefix) + std::to_string(thread_id));
+  bool should_be_verbose = ShouldBeVerbose();
+
+  for (const auto& command : commands) {
+    if (should_be_verbose) {
+      std::cout << kEraseLine << "Running " << current_command_number++ << "/"
+                << queued_commands_count << ": " << command->command
+                << std::endl;
+    }
+    std::system(command->command.c_str());
+  }
 }
 
 bool ExecuteStage(Stage stage,
                   const std::vector<std::unique_ptr<DeferredCommand>>& commands,
                   int& current_command_number,
                   std::stringstream& combined_output) {
-  if (stage == Stage::Run) {
-    RunCommands(commands);
+  if (stage == Stage::Run || ShouldBeVerbose()) {
+    RunCommands(commands, current_command_number);
     return true;
   }
 
