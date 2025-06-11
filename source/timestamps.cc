@@ -32,15 +32,14 @@ uint64_t GetTimestampOfFile(const std::string& file_name) {
 
   uint64_t timestamp = 0;
   if (std::filesystem::exists(file_name)) {
-    auto last_write_time = std::filesystem::last_write_time(file_name);
-    auto time_since_epoch = last_write_time.time_since_epoch();
-    timestamp =
-        std::chrono::duration_cast<std::chrono::milliseconds>(time_since_epoch)
-            .count();
-  } else if (std::filesystem::is_directory(file_name)) {
-    // 0 is used to mean a file doesn't exist, but directories do exist, they
-    // just don't have a timestamp.
-    timestamp = 1;
+    std::error_code ec;
+    auto last_write_time = std::filesystem::last_write_time(file_name, ec);
+    if (!ec) {  // Only proceed if last_write_time was successful.
+      auto time_since_epoch = last_write_time.time_since_epoch();
+      timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      time_since_epoch)
+                      .count();
+    }
   }
   timestamps_by_filename[file_name] = timestamp;
   return timestamp;
