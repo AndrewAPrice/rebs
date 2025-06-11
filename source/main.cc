@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
 
@@ -31,6 +32,16 @@ namespace {
 
 // Handles the invocation (clean, build, run, etc.) after everything has been
 // initialized.
+void ListPackages() {
+  std::cout << "All known packages:" << std::endl;
+  ForEachKnownPackage([](const std::string& package_path_str) {
+    std::filesystem::path package_path(package_path_str);
+    std::string package_name = GetPackageNameFromPath(package_path);
+    std::cout << " " << package_name << ": " << package_path.string()
+              << std::endl;
+  });
+}
+
 bool HandleInvocation() {
   switch (GetInvocationAction()) {
     case InvocationAction::DeepClean:
@@ -47,6 +58,9 @@ bool HandleInvocation() {
     case InvocationAction::Test:
       std::cerr << "Testing is not implement." << std::endl;
       return false;
+    case InvocationAction::List:
+      ListPackages();
+      return true;
     default:
       std::cerr << "Unknown invocation." << std::endl;
       return false;

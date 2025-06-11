@@ -45,6 +45,7 @@ Invocation action arguments:
   --deep-clean - Clean all the temp files and any cached repositories.
   --run        - Build and run the packages. (Default)
   --test       - Build and run unit tests for the packages.
+  --list       - List all known packages with their names and paths, then exit.
 
  Optimization levels:
   --debug     - Build with all debug symbols.
@@ -86,6 +87,8 @@ bool ParseInvocation(int argc, char* argv[]) {
         abort = true;
       } else if (argument == "--optimized") {
         optimization_level = OptimizationLevel::Optimized;
+      } else if (argument == "--list") {
+        invocation_action = InvocationAction::List;
       } else if (argument == "--run") {
         invocation_action = InvocationAction::Run;
       } else {

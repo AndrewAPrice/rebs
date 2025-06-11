@@ -26,5 +26,7 @@ enum class InvocationAction {
   // Builds and runs the provided packages.
   Run,
   // Builds and runs unit tests for the provided packages.
-  Test
+  Test,
+  // Lists all packages with their names and paths.
+  List
 };
