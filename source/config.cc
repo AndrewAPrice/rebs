@@ -153,9 +153,9 @@ std::filesystem::path GetHomeDirectory() {
 
 // Populates the command used to call Jsonett.
 void PopulateJsonnettCommand() {
-  jsonet_command = std::vformat(
-      "jsonnet --ext-str optimization_level=\"{}\"",
-      std::make_format_args(OptimizationLevelToString(GetOptimizationLevel())));
+  jsonet_command =
+      std::format("jsonnet --ext-str optimization_level=\"{}\"",
+                  OptimizationLevelToString(GetOptimizationLevel()));
 }
 
 // Gets the config file's path.
@@ -260,10 +260,9 @@ bool GenerateGlobalJsonFile(const std::string& generated_json_file) {
     file.close();
   }
 
-  std::string command = std::vformat(
-      "{} -o \"{}\" \"{}\"",
-      std::make_format_args(jsonet_command, (std::string)generated_json_file,
-                            (std::string)temp_jsonnet_file));
+  std::string command = std::format("{} -o \"{}\" \"{}\"", jsonet_command,
+                                    (std::string)generated_json_file,
+                                    (std::string)temp_jsonnet_file);
   if (!ExecuteCommand(command)) return false;
   SetTimestampOfFileToNow(generated_json_file);
   return true;
@@ -291,10 +290,9 @@ bool GenerateConfigFileForPackage(
     temp_file.close();
   }
 
-  std::string command = std::vformat(
-      "{} -o \"{}\" \"{}\"",
-      std::make_format_args(jsonet_command, (std::string)generated_config_path,
-                            (std::string)temp_jsonnet_file));
+  std::string command = std::format("{} -o \"{}\" \"{}\"", jsonet_command,
+                                    (std::string)generated_config_path,
+                                    (std::string)temp_jsonnet_file);
   if (!ExecuteCommand(command)) return false;
   SetTimestampOfFileToNow(generated_config_path);
   return true;
