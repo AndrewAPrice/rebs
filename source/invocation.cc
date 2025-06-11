@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "config.h"
 #include "invocation_action.h"
 #include "optimization_level.h"
 
@@ -110,7 +111,9 @@ OptimizationLevel GetOptimizationLevel() { return optimization_level; }
 void ForEachRawInputPackage(
     const std::function<void(const std::string&)>& on_each_package) {
   if (input_packages.empty()) {
-    on_each_package("");
+    // If it's the current directory, only return it if it's NOT a
+    // universe root.
+    if (!IsThereALocalConfig()) on_each_package("");
   } else {
     for (const std::string& package : input_packages) on_each_package(package);
   }
