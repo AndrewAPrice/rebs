@@ -48,8 +48,8 @@ bool HandleInvocation() {
       std::cerr << "Deep cleaning is not implement." << std::endl;
       return false;
     case InvocationAction::Clean:
-      std::cerr << "Cleaning is not implement." << std::endl;
-      return false;
+      CleanCurrentConfigurationTempDirectory();
+      return true;
     case InvocationAction::Build:
       return BuildPackages();
     case InvocationAction::Run:

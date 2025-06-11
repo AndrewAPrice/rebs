@@ -41,3 +41,6 @@ std::filesystem::path GetTempDirectoryPathForPackagePath(
 
 // Returns the temp directory of a package from the package id.
 std::filesystem::path GetTempDirectoryPathForPackageID(size_t package_id);
+
+// Deletes the temporary directory for the current configuration.
+void CleanCurrentConfigurationTempDirectory();

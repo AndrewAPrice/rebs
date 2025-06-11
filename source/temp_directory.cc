@@ -81,6 +81,16 @@ void EnsureDirectoriesAndParentsExist(const std::filesystem::path& path) {
   }
 }
 
+void CleanCurrentConfigurationTempDirectory() {
+  // temp_directory_path is initialized by InitializeTempDirectory()
+  // to reflect the current configuration (optimization level, local/global).
+  if (!temp_directory_path.empty()) {
+    DeleteFolderIfItExists(temp_directory_path);
+  } else {
+    std::cerr << "Warning: temp_directory_path was not initialized before cleaning." << std::endl;
+  }
+}
+
 void DeleteFolderIfItExists(const std::filesystem::path& path) {
   try {
     if (std::filesystem::exists(path)) {
