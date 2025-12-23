@@ -65,6 +65,30 @@ bool HandleInvocation() {
     case InvocationAction::GenerateClangd:
       GenerateClangdForPackages();
       return true;
+    case InvocationAction::Complete: {
+      std::string target = GetCompletionTarget();
+
+      // If the target starts with a dash, then the user is probably trying to
+      // auto-complete a flag.
+      if (target.size() > 0 && target[0] == '-') {
+        const std::vector<std::string> &known_flags = GetKnownFlags();
+        for (const std::string &flag : known_flags) {
+          if (flag.rfind(target, 0) == 0) {
+            std::cout << flag << std::endl;
+          }
+        }
+      } else {
+        // Otherwise, the user is likely trying to auto-complete a package.
+        ForEachKnownPackage([target](const std::string &package_path_str) {
+          std::string package_name =
+              GetPackageNameFromPath(std::filesystem::path(package_path_str));
+          if (package_name.rfind(target, 0) == 0) {
+            std::cout << package_name << std::endl;
+          }
+        });
+      }
+      return true;
+    }
     default:
       std::cerr << "Unknown invocation." << std::endl;
       return false;

@@ -28,8 +28,15 @@ namespace {
 InvocationAction invocation_action = InvocationAction::Run;
 OptimizationLevel optimization_level = OptimizationLevel::Fast;
 std::vector<std::string> input_packages;
+std::string completion_target;
 bool all_known_packages = false;
 bool verbose = false;
+
+const std::vector<std::string> kKnownFlags = {
+    "--all",       "--verbose",    "--build", "--clean",
+    "--debug",     "--deep-clean", "--fast",  "--help",
+    "--optimized", "--list",       "--run",   "--generate-clangd",
+    "--test"};
 
 void PrintHelp() {
   std::cout << R"(Usage:
@@ -95,6 +102,17 @@ bool ParseInvocation(int argc, char* argv[]) {
         invocation_action = InvocationAction::Run;
       } else if (argument == "--generate-clangd") {
         invocation_action = InvocationAction::GenerateClangd;
+      } else if (argument == "--complete") {
+        invocation_action = InvocationAction::Complete;
+        // Bash completion passes 3 arguments: command name, current word, prev
+        // word. We want the current word (2nd arg after --complete). syntax:
+        // rebs --complete <cmd> <cur> <prev>
+        if (i + 2 < argc) {
+          completion_target = argv[i + 2];
+        }
+        // Consume all remaining arguments as they are completion context, not
+        // packages.
+        i = argc;
       } else {
         std::cerr << "Unknown argument: " << argument << std::endl;
         abort = true;
@@ -125,3 +143,7 @@ void ForEachRawInputPackage(
 bool RunOnAllKnownPackages() { return all_known_packages; }
 
 bool ShouldBeVerbose() { return verbose; }
+
+const std::vector<std::string> &GetKnownFlags() { return kKnownFlags; }
+
+const std::string &GetCompletionTarget() { return completion_target; }

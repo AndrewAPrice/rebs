@@ -245,6 +245,25 @@ You can choose to ignore to build certain files. The paths are relative to the p
 ### Other usage
 Run `rebs --help` for complete usage.
 
+### Shell Auto-Completion
+
+To enable shell auto-completion, add the following line to your `~/.bashrc` (or `~/.bash_profile` on macOS):
+
+```bash
+complete -C "rebs --complete" rebs
+```
+
+If you use Zsh on macOS, add the following to your `~/.zshrc`:
+
+```bash
+# Enable bash completion support in Zsh
+autoload -Uz compinit && compinit
+autoload -Uz bashcompinit && bashcompinit
+
+# Register rebs completion
+complete -C "rebs --complete" rebs
+```
+
 ## Building
 
 You can build Really Easy Build System using the Really Easy Build System, but the. But, to avoid the "chicken and the egg" problem, you can also build using `make` in the root directory of this repository.

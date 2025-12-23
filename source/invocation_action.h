@@ -30,5 +30,7 @@ enum class InvocationAction {
   // Lists all packages with their names and paths.
   List,
   // Generates .clangd files and ensures they are up to date.
-  GenerateClangd
+  GenerateClangd,
+  // Outputs completion candidates for the current shell input.
+  Complete
 };

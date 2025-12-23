@@ -41,3 +41,10 @@ bool RunOnAllKnownPackages();
 
 // Returns whether REBS should be verbose about the running commands.
 bool ShouldBeVerbose();
+
+// Returns a list of all known flags that REBS accepts.
+const std::vector<std::string> &GetKnownFlags();
+
+// Returns the target string for completion (only valid if InvocationAction is
+// Complete).
+const std::string &GetCompletionTarget();
