@@ -28,5 +28,7 @@ enum class InvocationAction {
   // Builds and runs unit tests for the provided packages.
   Test,
   // Lists all packages with their names and paths.
-  List
+  List,
+  // Generates .clangd files and ensures they are up to date.
+  GenerateClangd
 };

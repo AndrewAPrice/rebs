@@ -36,7 +36,7 @@ struct PackageMetadata {
   size_t package_id;
 
   // A map of file extensions to build commands to build the source files in
-  // this package..
+  // this package.
   std::map<std::string, std::string> build_commands_by_file_extension;
   // The linker command to build this package.
   std::string linker_command;

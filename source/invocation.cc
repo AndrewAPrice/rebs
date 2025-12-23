@@ -41,12 +41,13 @@ Package arguments:
   --all - Ignore the packages in input and apply the action to all known packages on the system.
 
 Invocation action arguments:
-  --build      - Build but don't run.
-  --clean      - Clean the temp files for the packages.
-  --deep-clean - Clean all the temp files and any cached repositories.
-  --run        - Build and run the packages. (Default)
-  --test       - Build and run unit tests for the packages.
-  --list       - List all known packages with their names and paths, then exit.
+  --build           - Build but don't run.
+  --clean           - Clean the temp files for the packages.
+  --deep-clean      - Clean all the temp files and any cached repositories.
+  --run             - Build and run the packages. (Default)
+  --test            - Build and run unit tests for the packages.
+  --list            - List all known packages with their names and paths, then exit.
+  --generate-clangd - Generate clangd files for the packages.
 
  Optimization levels:
   --debug     - Build with all debug symbols.
@@ -92,6 +93,8 @@ bool ParseInvocation(int argc, char* argv[]) {
         invocation_action = InvocationAction::List;
       } else if (argument == "--run") {
         invocation_action = InvocationAction::Run;
+      } else if (argument == "--generate-clangd") {
+        invocation_action = InvocationAction::GenerateClangd;
       } else {
         std::cerr << "Unknown argument: " << argument << std::endl;
         abort = true;

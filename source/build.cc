@@ -24,6 +24,7 @@
 #include <sstream>
 #include <string>
 
+#include "clangd.h"
 #include "command_queue.h"
 #include "deferred_command.h"
 #include "dependencies.h"
@@ -151,6 +152,8 @@ bool BuildPackage(const std::string& package_name) {
   // Skip over already built packages.
   if (packages.contains(package_name)) return true;
   packages.insert(package_name);
+
+  MaybeGenerateClangdForPackage(package_name);
 
   auto metadata = GetMetadataForPackage(package_name);
   if (metadata == nullptr) {

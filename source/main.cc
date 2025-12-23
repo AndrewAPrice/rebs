@@ -17,6 +17,7 @@
 #include <memory>
 
 #include "build.h"
+#include "clangd.h"
 #include "command_queue.h"
 #include "config.h"
 #include "dependencies.h"
@@ -60,6 +61,9 @@ bool HandleInvocation() {
       return false;
     case InvocationAction::List:
       ListPackages();
+      return true;
+    case InvocationAction::GenerateClangd:
+      GenerateClangdForPackages();
       return true;
     default:
       std::cerr << "Unknown invocation." << std::endl;
