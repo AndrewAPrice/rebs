@@ -55,6 +55,17 @@ void InitializeTempDirectory() {
 
 std::filesystem::path GetTempDirectoryPath() { return temp_directory_path; }
 
+std::filesystem::path GetTempDirectoryWithoutOptimizationLevelPath() {
+  std::filesystem::path temp_directory_root;
+  if (IsThereALocalConfig()) {
+    temp_directory_root = kLocalTempSubdirectoryName;
+  } else {
+    temp_directory_root =
+        std::filesystem::temp_directory_path() / kTempSubDirectoryName;
+  }
+  return temp_directory_root;
+}
+
 std::filesystem::path GetTempDirectoryPathForPackageName(
     const std::string& package_name) {
   return GetTempDirectoryPathForPackageID(GetIDOfPackageFromName(package_name));

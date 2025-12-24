@@ -26,17 +26,19 @@
 namespace {
 
 InvocationAction invocation_action = InvocationAction::Run;
+bool action_explicitly_set = false;
 OptimizationLevel optimization_level = OptimizationLevel::Fast;
 std::vector<std::string> input_packages;
 std::string completion_target;
 bool all_known_packages = false;
+bool update_third_party = false;
 bool verbose = false;
 
 const std::vector<std::string> kKnownFlags = {
     "--all",       "--verbose",    "--build", "--clean",
     "--debug",     "--deep-clean", "--fast",  "--help",
     "--optimized", "--list",       "--run",   "--generate-clangd",
-    "--test"};
+    "--test",      "--update"};
 
 void PrintHelp() {
   std::cout << R"(Usage:
@@ -55,6 +57,7 @@ Invocation action arguments:
   --test            - Build and run unit tests for the packages.
   --list            - List all known packages with their names and paths, then exit.
   --generate-clangd - Generate clangd files for the packages.
+  --update          - Update third party packages. This can be used along with other actions.
 
  Optimization levels:
   --debug     - Build with all debug symbols.
@@ -83,12 +86,15 @@ bool ParseInvocation(int argc, char* argv[]) {
         verbose = true;
       } else if (argument == "--build") {
         invocation_action = InvocationAction::Build;
+        action_explicitly_set = true;
       } else if (argument == "--clean") {
         invocation_action = InvocationAction::Clean;
+        action_explicitly_set = true;
       } else if (argument == "--debug") {
         optimization_level = OptimizationLevel::Debug;
       } else if (argument == "--deep-clean") {
         invocation_action = InvocationAction::DeepClean;
+        action_explicitly_set = true;
       } else if (argument == "--fast") {
         optimization_level = OptimizationLevel::Fast;
       } else if (argument == "--help") {
@@ -98,12 +104,18 @@ bool ParseInvocation(int argc, char* argv[]) {
         optimization_level = OptimizationLevel::Optimized;
       } else if (argument == "--list") {
         invocation_action = InvocationAction::List;
+        action_explicitly_set = true;
       } else if (argument == "--run") {
         invocation_action = InvocationAction::Run;
+        action_explicitly_set = true;
       } else if (argument == "--generate-clangd") {
         invocation_action = InvocationAction::GenerateClangd;
+        action_explicitly_set = true;
+      } else if (argument == "--update") {
+        update_third_party = true;
       } else if (argument == "--complete") {
         invocation_action = InvocationAction::Complete;
+        action_explicitly_set = true;
         // Bash completion passes 3 arguments: command name, current word, prev
         // word. We want the current word (2nd arg after --complete). syntax:
         // rebs --complete <cmd> <cur> <prev>
@@ -120,6 +132,10 @@ bool ParseInvocation(int argc, char* argv[]) {
     } else {
       input_packages.push_back(argument);
     }
+  }
+
+  if (update_third_party && !action_explicitly_set) {
+    invocation_action = InvocationAction::UpdateThirdParty;
   }
 
   return !abort;
@@ -141,6 +157,8 @@ void ForEachRawInputPackage(
 }
 
 bool RunOnAllKnownPackages() { return all_known_packages; }
+
+bool ShouldUpdateThirdParty() { return update_third_party; }
 
 bool ShouldBeVerbose() { return verbose; }
 

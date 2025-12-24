@@ -39,6 +39,9 @@ void ForEachRawInputPackage(
 // for all known packages.
 bool RunOnAllKnownPackages();
 
+// Returns whether the user requested that third party packages be updated.
+bool ShouldUpdateThirdParty();
+
 // Returns whether REBS should be verbose about the running commands.
 bool ShouldBeVerbose();
 

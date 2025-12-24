@@ -63,7 +63,11 @@ bool ExecuteCommand(const std::string& command, std::stringstream* opt_output) {
 
     // Return if the program closed without error.
     int return_code = pclose(pipe);
-    if (WEXITSTATUS(return_code) == EXIT_SUCCESS) return true;
+    if (WEXITSTATUS(return_code) == EXIT_SUCCESS) {
+      if (opt_output)
+        *opt_output << output;
+      return true;
+    }
   } catch (...) {
     throw;
   }

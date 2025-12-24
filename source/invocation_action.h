@@ -31,6 +31,8 @@ enum class InvocationAction {
   List,
   // Generates .clangd files and ensures they are up to date.
   GenerateClangd,
+  // Updates third party packages.
+  UpdateThirdParty,
   // Outputs completion candidates for the current shell input.
   Complete
 };

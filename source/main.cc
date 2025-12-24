@@ -24,10 +24,12 @@
 #include "invocation.h"
 #include "invocation_action.h"
 #include "package_id.h"
+#include "package_metadata.h"
 #include "packages.h"
 #include "run.h"
 #include "stage.h"
 #include "temp_directory.h"
+#include "third_party.h"
 
 namespace {
 
@@ -46,11 +48,17 @@ void ListPackages() {
 bool HandleInvocation() {
   switch (GetInvocationAction()) {
     case InvocationAction::DeepClean:
-      std::cerr << "Deep cleaning is not implement." << std::endl;
-      return false;
+      CleanRepositoriesDirectory();
+      ForEachKnownPackage([](const std::string &package_path_str) {
+        CleanThirdParty(package_path_str);
+      });
+      CleanCurrentConfigurationTempDirectory();
+      return true;
     case InvocationAction::Clean:
       CleanCurrentConfigurationTempDirectory();
       return true;
+    case InvocationAction::UpdateThirdParty:
+      return UpdateThirdPartyPackages();
     case InvocationAction::Build:
       return BuildPackages();
     case InvocationAction::Run:

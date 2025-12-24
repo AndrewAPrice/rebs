@@ -24,7 +24,11 @@ void InitializeTempDirectory();
 void FinalizeTempDirectory();
 
 // Returns the temp path.
+// Returns the temp path.
 std::filesystem::path GetTempDirectoryPath();
+
+// Returns the temp path without the optimization level.
+std::filesystem::path GetTempDirectoryWithoutOptimizationLevelPath();
 
 // Ensures a directory exists. Creates it (and the parents) if neccesary.
 void EnsureDirectoriesAndParentsExist(const std::filesystem::path& path);

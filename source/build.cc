@@ -34,6 +34,7 @@
 #include "stage.h"
 #include "string_replace.h"
 #include "temp_directory.h"
+#include "third_party.h"
 #include "timestamps.h"
 
 namespace {
@@ -153,6 +154,9 @@ bool BuildPackage(const std::string& package_name) {
   if (packages.contains(package_name)) return true;
   packages.insert(package_name);
 
+  std::filesystem::path package_path = GetPackagePathFromName(package_name);
+  if (!MaybeUpdateThirdPartyBeforeBuilding(package_path))
+    return false;
   MaybeGenerateClangdForPackage(package_name);
 
   auto metadata = GetMetadataForPackage(package_name);
