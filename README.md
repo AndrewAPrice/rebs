@@ -4,26 +4,46 @@ REBS (Really Easy Build System) is a build system intended for C and C++ package
 
 ## Usage
 
-### Basic usage
+### Quick Start
 
-To build and run packages that use the C++ standard library, you can just `cd` into a directory containing recognized source files (.c, .cpp, .cc, .asm, etc) and run `rebs`. The C++ sources in this directory and all subdirectories will build, and if successful, they resulting program will run.
+To build and run packages that use the C++ standard library, you can just `cd` into a directory containing recognized source files (.c, .cpp, .cc, .asm, etc) and run `rebs`. The C++ sources in this directory and all subdirectories will build, and if successful, the resulting program will run.
 
-Some other commands are supported such as:
-* `--clean` - Removes all source files for the package.
-* `--build` - Just builds the package, but does not run it.
-* `--run` - Builds, and if successful, runs the package. (Default.)
-* `--test` - Builds and run unit tests.
+### Command-line Arguments
 
-The above commands can be ran with a combination of:
-* `--debug` - Builds with no optimizations and debug symbols embedded.
-* `--fast` - Builds with default optimizations. (Default.)
-* `--optimized` - Builds with aggressive whole program optimization. (Slow.)
+#### Invocation Actions
 
-You can also override the environment being build for:
-* `--os=` - The OS being targetted.
-* `--arch=` - The architecture being targetted.
+These flags determine the main action REBS performs.
 
-For more usage arguments, pass `--help`.
+*   `--build` - Builds the identified packages but does not run them.
+*   `--clean` - removes temporary files for the identified packages.
+*   `--deep-clean` - Removes all temporary files, including cached repositories.
+*   `--run` - Builds and runs the packages. This is the default action if none is specified.
+*   `--test` - Builds and runs unit tests for the packages.
+*   `--list` - Lists all known packages with their names and paths.
+*   `--generate-clangd` - Generates `.clangd` configuration files for the packages (useful for IDEs).
+*   `--update` - Updates third-party dependencies. Can be combined with other actions.
+*   `--complete` - Used for shell auto-completion.
+
+#### Optimization Levels
+
+These flags control the compiler optimization settings.
+
+*   `--debug` - Builds with debug symbols and no optimizations.
+*   `--fast` - (Default) Builds with some optimizations enabled (-O1 or similar).
+*   `--optimized` - Builds with full optimizations enabled (e.g. -O3, LTO).
+
+#### Target Environment
+
+You can override the environment being targeted:
+
+*   `--os=<os>` - The OS being targeted.
+*   `--arch=<arch>` - The architecture being targeted.
+
+#### Options
+
+*   `--all` - Ignores the input arguments and applies the action to *all* known packages found on the system.
+*   `--verbose` - Prints detailed information about the commands being executed.
+*   `--help` - Prints the usage help message.
 
 ### Configuring packages
 
@@ -156,6 +176,7 @@ The supported placeholders are:
 * `${out}` - The output object file.
 * `${cdefines}` - The preprocessor defines, in standard C compiler style.
 * `${cincludes}` - The include directories, in standard C compiler style.
+* `${clangincludes}` - The output of `clang -print-resource-dir`.
 * `${deps file}` - The file to write the dependencies to, in standard C compiler style.
 * `${package name}` - The name of the currently building package.
 * `${temp directory}` - The path of the temp directory during this build. This is not unique to the package.
@@ -244,6 +265,111 @@ You can choose to ignore to build certain files. The paths are relative to the p
 
 ### Other usage
 Run `rebs --help` for complete usage.
+
+## Third Party Support
+
+REBS supports managing third-party dependencies through a `third_party.json` file in your package's root directory. This allows you to fetch external code (via git, zip, or direct download) and perform various operations like copying files, executing commands, and manipulating version strings.
+
+### The `third_party.json` file
+
+The file should contain a JSON object with two optional main sections: `repositories` and `operations`.
+
+#### Repositories
+
+The `repositories` array defines external sources to fetch. Each repository must specify a `type`, `url`, and `placeholder`. The `placeholder` is used to reference the downloaded location in subsequent operations.
+
+Supported types:
+*   `git` - Clones a git repository.
+*   `zip` - Downloads and unzips a file.
+*   `download` - Downloads a single file.
+
+Example:
+```json
+"repositories": [
+  {
+    "type": "git",
+    "url": "https://github.com/nlohmann/json.git",
+    "placeholder": "nlohmann_json_root"
+  }
+]
+```
+
+#### Operations
+
+The `operations` array defines a sequence of actions to perform. Each operation has an `operation` field specifying the type.
+
+Supported operations:
+
+*   **copy**: Copies files or directories.
+    *   `source`: Path(s) to copy from (can use placeholders).
+    *   `destination`: Path(s) to copy to (relative to package root).
+    *   `recursive`: (Optional) Boolean to copy directories recursively.
+    *   `exclude`: (Optional) List of regex patterns to exclude.
+    *   `replace`: (Optional) List of objects to perform string replacements in files.
+        *   `file`: File(s) to apply replacements to.
+        *   `replacements`: List of `[ "search", "replace" ]` pairs.
+        *   `prepend`: String to prepend to the file.
+*   **createDirectory**: Creates directories.
+    *   `path`: Path(s) to create.
+*   **evaluate**: Evaluates Python expressions to generate variables.
+    *   `values`: Map of variable names to expressions.
+*   **execute**: Executes a shell command.
+    *   `command`: The command string to execute.
+    *   `directory`: (Optional) Working directory for the command.
+    *   `inputs`: (Optional) List of input files (for cache invalidation).
+    *   `outputs`: (Optional) List of output files (for cache invalidation).
+    *   `alwaysRun`: (Optional) Boolean to force execution every time.
+*   **joinArray**: Joins an array of strings into a single string.
+    *   `value`: Array of strings (or single string) to join.
+    *   `joint`: Separator string.
+    *   `placeholder`: Variable name to store the result.
+*   **readFilesInDirectory**: Lists files in a directory.
+    *   `path`: Directory path(s) to read.
+    *   `extensions`: (Optional) List of file extensions to include.
+    *   `fullPath`: (Optional) Boolean to return full paths instead of filenames.
+    *   `placeholder`: Variable name to store the list.
+*   **readRegExFromFile**: Extracts text from a file using regex.
+    *   `file`: Path to the file.
+    *   `values`: Map where keys are comma-separated variable names and values are regex patterns.
+*   **set**: Sets variables directly.
+    *   `values`: Map of variable names to values (strings or arrays).
+
+#### Example `third_party.json`
+
+```json
+{
+  "repositories": [
+    {
+      "type": "git",
+      "url": "https://github.com/fmtlib/fmt.git",
+      "placeholder": "fmt_root"
+    }
+  ],
+  "operations": [
+    {
+      "operation": "copy",
+      "source": [ "${fmt_root}/include/fmt" ],
+      "destination": [ "third_party/fmt/include/fmt" ],
+      "recursive": true
+    },
+    {
+      "operation": "copy",
+      "source": [ "${fmt_root}/src/format.cc" ],
+      "destination": [ "third_party/fmt/src/format.cc" ]
+    }
+  ]
+}
+```
+
+### Strings and Placeholders
+
+All string values in `third_party.json` can contain placeholders using the syntax `${variable}`.
+
+#### Expansion Rules
+
+*   **Variables can hold multiple values**: A variable in REBS can be a list of strings (an array).
+*   **Cartesian Product**: If a string contains placeholders that resolve to arrays, the string is expanded into a new array containing every permutation of the placeholders.
+    *   Example: `prefix-${var}-suffix` where `var` is `["a", "b"]` expands to `["prefix-a-suffix", "prefix-b-suffix"]`.
 
 ### Shell Auto-Completion
 
