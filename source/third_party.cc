@@ -322,6 +322,7 @@ void CopyFile(const std::filesystem::path &from,
         from, to, std::filesystem::copy_options::overwrite_existing);
   }
   std::cout << "Copying " << to.string() << std::endl;
+  InvalidateTimestamp(to.string());
 }
 
 // Executes a copy operation.
@@ -463,6 +464,7 @@ bool ExecuteCreateDirectory(const json &op, PlaceholderInfo &info,
   auto paths = EvaluatePath(JsonToStringVector(op["path"]), info);
   for (const auto &p : paths) {
     std::filesystem::create_directories(p);
+    InvalidateTimestamp(p);
   }
   return true;
 }
@@ -567,8 +569,10 @@ bool ExecuteExecute(const json &op, PlaceholderInfo &info,
   }
 
   for (const auto &output : final_outputs) {
-    if (std::filesystem::exists(output))
+    if (std::filesystem::exists(output)) {
       std::filesystem::remove(output);
+      InvalidateTimestamp(output);
+    }
   }
 
   std::string command = op.value("command", "");
@@ -589,6 +593,10 @@ bool ExecuteExecute(const json &op, PlaceholderInfo &info,
   std::cout << "Executing: " << final_cmd << std::endl;
   if (!ExecuteSystemCommand(final_cmd))
     return false;
+
+  for (const auto &output : final_outputs) {
+    InvalidateTimestamp(output);
+  }
 
   return true;
 }

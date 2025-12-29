@@ -24,3 +24,6 @@ bool DoesFileExist(const std::string& file_name);
 
 // Sets the timestamp of a file to now.
 void SetTimestampOfFileToNow(const std::string& file_name);
+
+// Invalidates the cached timestamp of a file.
+void InvalidateTimestamp(const std::string &file_name);
