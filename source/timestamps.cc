@@ -24,28 +24,18 @@ namespace {
 // A cache of timestamps of files.
 std::map<std::string, uint64_t> timestamps_by_filename;
 
-std::string NormalizePath(const std::string &path) {
-  try {
-    return std::filesystem::weakly_canonical(path).string();
-  } catch (...) {
-    return path;
-  }
-}
-
 }  // namespace
 
 uint64_t GetTimestampOfFile(const std::string& file_name) {
-  std::string normalized_name = NormalizePath(file_name);
-  auto itr = timestamps_by_filename.find(normalized_name);
+  auto itr = timestamps_by_filename.find(file_name);
   if (itr != timestamps_by_filename.end()) {
     return itr->second;
   }
 
   uint64_t timestamp = 0;
-  if (std::filesystem::exists(normalized_name)) {
+  if (std::filesystem::exists(file_name)) {
     std::error_code ec;
-    auto last_write_time =
-        std::filesystem::last_write_time(normalized_name, ec);
+    auto last_write_time = std::filesystem::last_write_time(file_name, ec);
     if (!ec) {  // Only proceed if last_write_time was successful.
       auto time_since_epoch = last_write_time.time_since_epoch();
       timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -53,7 +43,7 @@ uint64_t GetTimestampOfFile(const std::string& file_name) {
                       .count();
     }
   }
-  timestamps_by_filename[normalized_name] = timestamp;
+  timestamps_by_filename[file_name] = timestamp;
   return timestamp;
 }
 
@@ -61,16 +51,14 @@ bool DoesFileExist(const std::string& file_name) {
   return GetTimestampOfFile(file_name) != 0;
 }
 
-void SetTimestampOfFileToNow(const std::string& file_name) {
-  std::string normalized_name = NormalizePath(file_name);
+void SetTimestampOfFileToNow(const std::string &file_name) {
   auto now = std::chrono::system_clock::now();
   auto time_since_epoch = now.time_since_epoch();
-  timestamps_by_filename[normalized_name] =
+  timestamps_by_filename[file_name] =
       std::chrono::duration_cast<std::chrono::milliseconds>(time_since_epoch)
           .count();
 }
 
 void InvalidateTimestamp(const std::string &file_name) {
-  std::string normalized_name = NormalizePath(file_name);
-  timestamps_by_filename.erase(normalized_name);
+  timestamps_by_filename.erase(file_name);
 }

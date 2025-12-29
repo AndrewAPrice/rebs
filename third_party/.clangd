@@ -1,0 +1,8 @@
+CompileFlags:
+  Add: [
+    -c,
+    -std=c++20,
+    -MD,
+    -MF,
+    -o,
+  ]
