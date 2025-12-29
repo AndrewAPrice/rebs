@@ -36,19 +36,19 @@ constexpr char kTempSubDirectoryName[] = "rebs";
 constexpr char kLocalTempSubdirectoryName[] = ".build";
 
 std::filesystem::path temp_directory_path;
+std::filesystem::path temp_directory_path_without_optimization_level;
 
 }  // namespace
 
 void InitializeTempDirectory() {
-  std::filesystem::path temp_directory_root;
   if (IsThereALocalConfig()) {
-    temp_directory_root = kLocalTempSubdirectoryName;
+    temp_directory_path_without_optimization_level = kLocalTempSubdirectoryName;
   } else {
-    temp_directory_root =
+    temp_directory_path_without_optimization_level =
         std::filesystem::temp_directory_path() / kTempSubDirectoryName;
   }
-  temp_directory_path =
-      temp_directory_root / OptimizationLevelToString(GetOptimizationLevel());
+  temp_directory_path = temp_directory_path_without_optimization_level /
+                        OptimizationLevelToString(GetOptimizationLevel());
   EnsureDirectoriesAndParentsExist(temp_directory_path);
   SetPlaceholder("temp directory", std::string(temp_directory_path));
 }
@@ -56,14 +56,7 @@ void InitializeTempDirectory() {
 std::filesystem::path GetTempDirectoryPath() { return temp_directory_path; }
 
 std::filesystem::path GetTempDirectoryWithoutOptimizationLevelPath() {
-  std::filesystem::path temp_directory_root;
-  if (IsThereALocalConfig()) {
-    temp_directory_root = kLocalTempSubdirectoryName;
-  } else {
-    temp_directory_root =
-        std::filesystem::temp_directory_path() / kTempSubDirectoryName;
-  }
-  return temp_directory_root;
+  return temp_directory_path_without_optimization_level;
 }
 
 std::filesystem::path GetTempDirectoryPathForPackageName(

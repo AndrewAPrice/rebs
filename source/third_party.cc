@@ -394,11 +394,14 @@ bool ExecuteCopy(const json &op, PlaceholderInfo &info,
     }
 
     if (std::filesystem::is_directory(from)) {
-      for (auto &p : std::filesystem::recursive_directory_iterator(from)) {
-        if (p.is_directory() && !recursive)
+      for (auto it = std::filesystem::recursive_directory_iterator(from);
+           it != std::filesystem::recursive_directory_iterator(); ++it) {
+        const auto &p = *it;
+        if (p.is_directory()) {
+          if (!recursive)
+            it.disable_recursion_pending();
           continue;
-        if (p.is_directory())
-          continue;
+        }
 
         std::filesystem::path rel = std::filesystem::relative(p.path(), from);
         std::filesystem::path dest_file = to / rel;
@@ -745,7 +748,8 @@ bool ExecuteOperation(const json &op, PlaceholderInfo &info,
 } // namespace
 
 // Updates third party packages.
-bool UpdateThirdParty(const std::filesystem::path &package_path) {
+// Updates third party packages.
+bool UpdateThirdParty(const std::filesystem::path &package_path, bool force) {
   std::filesystem::path third_party_json = package_path / "third_party.json";
   std::filesystem::path third_party_files_json =
       package_path / ".third_party_files.json";
@@ -753,14 +757,17 @@ bool UpdateThirdParty(const std::filesystem::path &package_path) {
   if (!std::filesystem::exists(third_party_json))
     return true; // Nothing to do
 
-  // Check timestamps
-  long long tp_time = GetTimestampOfFile(third_party_json.string());
-  long long tpf_time = std::filesystem::exists(third_party_files_json)
-                           ? GetTimestampOfFile(third_party_files_json.string())
-                           : 0;
+  if (!force) {
+    // Check timestamps
+    long long tp_time = GetTimestampOfFile(third_party_json.string());
+    long long tpf_time =
+        std::filesystem::exists(third_party_files_json)
+            ? GetTimestampOfFile(third_party_files_json.string())
+            : 0;
 
-  if (tpf_time >= tp_time)
-    return true; // Up to date
+    if (tpf_time >= tp_time)
+      return true; // Up to date
+  }
 
   std::cout << "Updating third party packages for "
             << GetPackageNameFromPath(package_path) << "..." << std::endl;
@@ -810,25 +817,21 @@ bool UpdateThirdParty(const std::filesystem::path &package_path) {
 
 bool MaybeUpdateThirdPartyBeforeBuilding(
     const std::filesystem::path &package_path) {
-  bool should_update = ShouldUpdateThirdParty();
-  if (!should_update) {
-    if (std::filesystem::exists(package_path / "third_party.json") &&
-        !std::filesystem::exists(package_path / ".third_party_files.json")) {
-      should_update = true;
-    }
-  }
+  bool force = ShouldUpdateThirdParty();
+  if (force)
+    return UpdateThirdParty(package_path, force);
 
-  if (!should_update)
-    return true;
+  if (std::filesystem::exists(package_path / "third_party.json"))
+    return UpdateThirdParty(package_path, false);
 
-  return UpdateThirdParty(package_path);
+  return true;
 }
 
 // Helper to update third party packages.
 bool UpdateThirdPartyPackages() {
   bool success = true;
   ForEachInputPackage([&](const std::string &package_path_str) {
-    success &= UpdateThirdParty(package_path_str);
+    success &= UpdateThirdParty(package_path_str, true);
   });
   return success;
 }

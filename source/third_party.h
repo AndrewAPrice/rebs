@@ -18,7 +18,8 @@
 
 // Updates the third party dependencies for the given package.
 // Returns true if successful.
-bool UpdateThirdParty(const std::filesystem::path &package_path);
+bool UpdateThirdParty(const std::filesystem::path &package_path,
+                      bool force = false);
 
 // Checks if there are third party dependencies that need to be updated for a
 // package. This includes the intial build even if --update was not specified.
