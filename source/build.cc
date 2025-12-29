@@ -19,6 +19,7 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <queue>
 #include <set>
 #include <sstream>
@@ -28,6 +29,7 @@
 #include "command_queue.h"
 #include "deferred_command.h"
 #include "dependencies.h"
+#include "execute.h"
 #include "invocation.h"
 #include "package_metadata.h"
 #include "packages.h"
@@ -335,6 +337,19 @@ void InitializePlaceholders() {
   // Prevents ${deps file} from being substituted because it's replaced right
   // before executing with a thread-specific file path.
   SetPlaceholder("deps file", "${deps file}");
+
+  SetLazyPlaceholder("clangresources", []() -> std::optional<std::string> {
+    std::stringstream output;
+    if (ExecuteCommand("clang -print-resource-dir", &output)) {
+      std::string result = output.str();
+      // Trim trailing newline
+      if (!result.empty() && result.back() == '\n') {
+        result.pop_back();
+      }
+      return result;
+    }
+    return std::nullopt;
+  });
 }
 
 }  // namespace

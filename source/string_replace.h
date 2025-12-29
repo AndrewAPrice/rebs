@@ -14,12 +14,20 @@
 
 #pragma once
 
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
 // Registers a placeholder for use with `ReplacePlaceholdersInString`. The
 // placeholder excludes the "${}". e.g. "${abc}" will be just "abc".
 void SetPlaceholder(std::string placeholder, std::string_view str);
+
+using PlaceholderProvider = std::function<std::optional<std::string>()>;
+
+// Registers a lazy placeholder. The provider is called only when the
+// placeholder is encountered. The result is cached for future uses.
+void SetLazyPlaceholder(std::string placeholder, PlaceholderProvider provider);
 
 // Replaces all registered placeholders in a string with a new value.
 void ReplacePlaceholdersInString(std::string& str);

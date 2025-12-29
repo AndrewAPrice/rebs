@@ -24,12 +24,19 @@ namespace {
 // A map of placeholders to their replacement values.
 std::map<std::string, std::string> placeholders_and_values;
 
+// A map of lazy placeholders to their providers.
+std::map<std::string, PlaceholderProvider> lazy_placeholders;
+
 } // namespace
 
 // Registers a placeholder for use with `ReplacePlaceholdersInString`. The
 // placeholder excludes the "${}". e.g. "${abc}" will be just "abc".
 void SetPlaceholder(std::string placeholder, std::string_view str) {
   placeholders_and_values[placeholder] = std::string(str);
+}
+
+void SetLazyPlaceholder(std::string placeholder, PlaceholderProvider provider) {
+  lazy_placeholders[placeholder] = std::move(provider);
 }
 
 // Replaces all registered placeholders in a string with a new value.
@@ -43,7 +50,19 @@ void ReplacePlaceholdersInString(std::string& str) {
           // Get the placeholder name.
           std::string placeholder = str.substr(pos + 2, end_pos - pos - 2);
           // Look up replacement value.
-          const auto& it = placeholders_and_values.find(placeholder);
+          auto it = placeholders_and_values.find(placeholder);
+
+          if (it == placeholders_and_values.end()) {
+            // Check if it is a lazy placeholder.
+            auto lazy_it = lazy_placeholders.find(placeholder);
+            if (lazy_it != lazy_placeholders.end()) {
+              auto value = lazy_it->second();
+              if (value) {
+                placeholders_and_values[placeholder] = *value;
+                it = placeholders_and_values.find(placeholder);
+              }
+            }
+          }
 
           if (it != placeholders_and_values.end()) {
               // Replace placeholder with the replacement value.
