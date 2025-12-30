@@ -18,6 +18,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -325,6 +326,46 @@ void CopyFile(const std::filesystem::path &from,
   InvalidateTimestamp(to.string());
 }
 
+// Parses the "extensions" field.
+std::set<std::string> ParseExtensions(const json &op) {
+  std::set<std::string> extensions;
+  if (op.contains("extensions")) {
+    for (const auto &ext : op["extensions"])
+      extensions.insert(ext.get<std::string>());
+  }
+  return extensions;
+}
+
+// Processes and copies a single file.
+void CopyAndProcessFile(
+    const std::filesystem::path &from, const std::filesystem::path &to,
+    const std::map<std::string,
+                   std::vector<std::pair<std::string, std::string>>>
+        &replace_map,
+    const std::map<std::string, std::string> &prepend_map,
+    std::map<std::string, bool> &third_party_files) {
+  bool needs_processing =
+      replace_map.count(to.string()) || prepend_map.count(to.string());
+  if (needs_processing) {
+    std::ifstream t(from);
+    std::stringstream buffer;
+    buffer << t.rdbuf();
+    std::string content = buffer.str();
+
+    if (prepend_map.count(to.string())) {
+      content = prepend_map.at(to.string()) + content;
+    }
+    if (replace_map.count(to.string())) {
+      for (const auto &kv : replace_map.at(to.string())) {
+        content = ReplaceAll(content, kv.first, kv.second);
+      }
+    }
+    CopyFile(from, to, content, true, third_party_files);
+  } else {
+    CopyFile(from, to, "", false, third_party_files);
+  }
+}
+
 // Executes a copy operation.
 bool ExecuteCopy(const json &op, PlaceholderInfo &info,
                  std::map<std::string, bool> &third_party_files) {
@@ -345,6 +386,19 @@ bool ExecuteCopy(const json &op, PlaceholderInfo &info,
 
     std::cerr << std::endl << "Operation: " << op.dump(4) << std::endl;
     return false;
+  }
+
+  std::map<std::string, std::string> rename_map;
+  if (op.contains("rename")) {
+    for (const auto &[key, val] : op["rename"].items()) {
+      auto keys = EvaluatePath({key}, info);
+      auto vals = EvaluatePath(JsonToStringVector(val), info);
+      if (vals.empty())
+        continue;
+      for (const auto &k : keys) {
+        rename_map[k] = vals[0];
+      }
+    }
   }
 
   std::map<std::string, std::vector<std::pair<std::string, std::string>>>
@@ -385,6 +439,8 @@ bool ExecuteCopy(const json &op, PlaceholderInfo &info,
       excludes.insert(p);
   }
 
+  std::set<std::string> extensions = ParseExtensions(op);
+
   for (size_t i = 0; i < sources.size(); ++i) {
     std::filesystem::path from = sources[i];
     std::filesystem::path to = dests[i];
@@ -404,55 +460,33 @@ bool ExecuteCopy(const json &op, PlaceholderInfo &info,
           continue;
         }
 
+        if (!extensions.empty() &&
+            extensions.find(p.path().extension().string()) == extensions.end())
+          continue;
+
         std::filesystem::path rel = std::filesystem::relative(p.path(), from);
         std::filesystem::path dest_file = to / rel;
+
+        if (rename_map.count(dest_file.string())) {
+          dest_file = rename_map.at(dest_file.string());
+        }
 
         if (excludes.count(dest_file.string()))
           continue;
 
-        bool needs_processing = replace_map.count(dest_file.string()) ||
-                                prepend_map.count(dest_file.string());
-
-        if (needs_processing) {
-          std::ifstream t(p.path());
-          std::stringstream buffer;
-          buffer << t.rdbuf();
-          std::string content = buffer.str();
-
-          if (prepend_map.count(dest_file.string())) {
-            content = prepend_map[dest_file.string()] + content;
-          }
-          if (replace_map.count(dest_file.string())) {
-            for (auto &kv : replace_map[dest_file.string()]) {
-              content = ReplaceAll(content, kv.first, kv.second);
-            }
-          }
-          CopyFile(p.path(), dest_file, content, true, third_party_files);
-        } else {
-          CopyFile(p.path(), dest_file, "", false, third_party_files);
-        }
+        CopyAndProcessFile(p.path(), dest_file, replace_map, prepend_map,
+                           third_party_files);
       }
     } else {
-      bool needs_processing =
-          replace_map.count(to.string()) || prepend_map.count(to.string());
-      if (needs_processing) {
-        std::ifstream t(from);
-        std::stringstream buffer;
-        buffer << t.rdbuf();
-        std::string content = buffer.str();
+      if (!extensions.empty() &&
+          extensions.find(from.extension().string()) == extensions.end())
+        continue;
 
-        if (prepend_map.count(to.string())) {
-          content = prepend_map[to.string()] + content;
-        }
-        if (replace_map.count(to.string())) {
-          for (auto &kv : replace_map[to.string()]) {
-            content = ReplaceAll(content, kv.first, kv.second);
-          }
-        }
-        CopyFile(from, to, content, true, third_party_files);
-      } else {
-        CopyFile(from, to, "", false, third_party_files);
+      if (rename_map.count(to.string())) {
+        to = rename_map.at(to.string());
       }
+
+      CopyAndProcessFile(from, to, replace_map, prepend_map, third_party_files);
     }
   }
   return true;
@@ -471,7 +505,7 @@ bool ExecuteCreateDirectory(const json &op, PlaceholderInfo &info,
 
 // Executes an evaluate operation.
 // Evaluates a single expression using python3.
-std::string EvaluateExpressionString(const std::string &expr) {
+std::optional<std::string> EvaluateExpressionString(const std::string &expr) {
   // Use python3 to evaluate.
   // We need to escape single quotes slightly?
   // The expression is passed inside "print(eval('<expr>'))"
@@ -488,7 +522,7 @@ std::string EvaluateExpressionString(const std::string &expr) {
   std::string cmd = "python3 -c \"print(" + escaped_expr + ")\"";
   if (!ExecuteCommand(cmd, &output_ss)) {
     std::cerr << "Failed to evaluate: " << expr << std::endl;
-    return expr; // Fallback? or empty?
+    return std::nullopt;
   }
 
   std::string result = output_ss.str();
@@ -515,7 +549,10 @@ bool ExecuteEvaluate(const json &op, PlaceholderInfo &info,
       }
 
       for (const auto &expr : raw_expressions) {
-        results.push_back(EvaluateExpressionString(expr));
+        auto result = EvaluateExpressionString(expr);
+        if (!result.has_value())
+          return false;
+        results.push_back(result.value());
       }
 
       info.placeholders["${" + key + "}"] = results;
@@ -638,10 +675,35 @@ bool ExecuteReadFilesInDirectory(
   std::vector<std::string> files_found;
   bool full_path = op.value("fullPath", false);
 
-  std::set<std::string> extensions;
-  if (op.contains("extensions")) {
-    for (const auto &ext : op["extensions"])
-      extensions.insert(ext.get<std::string>());
+  std::set<std::string> extensions = ParseExtensions(op);
+
+  std::optional<std::regex> filename_regex;
+  if (op.contains("regex")) {
+    try {
+      filename_regex = std::regex(op["regex"].get<std::string>());
+    } catch (const std::regex_error &e) {
+      std::cerr << "Invalid regex: " << op["regex"].get<std::string>() << " - "
+                << e.what() << std::endl;
+      return false;
+    }
+  }
+
+  std::vector<std::pair<std::string, std::string>> replacements;
+  if (op.contains("replacements")) {
+    for (const auto &rep : op["replacements"]) {
+      if (rep.is_array() && rep.size() == 2 && rep[0].is_string() &&
+          rep[1].is_string()) {
+        auto needles =
+            SubstitutePlaceholdersInString(rep[0].get<std::string>(), info);
+        auto withs =
+            SubstitutePlaceholdersInString(rep[1].get<std::string>(), info);
+        for (const auto &needle : needles) {
+          for (const auto &with : withs) {
+            replacements.push_back({needle, with});
+          }
+        }
+      }
+    }
   }
 
   for (const auto &dir : paths) {
@@ -658,8 +720,20 @@ bool ExecuteReadFilesInDirectory(
               extensions.end())
         continue;
 
+      if (filename_regex.has_value()) {
+        if (!std::regex_match(entry.path().filename().string(),
+                              filename_regex.value())) {
+          continue;
+        }
+      }
+
       std::string val =
           full_path ? entry.path().string() : entry.path().filename().string();
+
+      for (const auto &kv : replacements) {
+        val = ReplaceAll(val, kv.first, kv.second);
+      }
+
       files_found.push_back(val);
     }
   }
@@ -703,6 +777,10 @@ bool ExecuteReadRegExFromFile(const json &op, PlaceholderInfo &info,
           }
           idx++;
         }
+      } else {
+        std::cerr << "Regex not found in file: " << path << std::endl;
+        std::cerr << "Regex: " << regex_str.get<std::string>() << std::endl;
+        return false;
       }
     }
   }
@@ -777,6 +855,8 @@ bool UpdateThirdParty(const std::filesystem::path &package_path, bool force) {
       return true; // Up to date
   }
 
+  CleanThirdParty(package_path);
+
   std::cout << "Updating third party packages for "
             << GetPackageNameFromPath(package_path) << "..." << std::endl;
 
@@ -835,7 +915,7 @@ bool MaybeUpdateThirdPartyBeforeBuilding(
   return true;
 }
 
-// Helper to update third party packages.
+// Updates third party packages.
 bool UpdateThirdPartyPackages() {
   bool success = true;
   ForEachInputPackage([&](const std::string &package_path_str) {
