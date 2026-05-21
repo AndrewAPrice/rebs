@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -26,6 +27,12 @@
 #include "temp_directory.h"
 
 namespace {
+
+// The input packages, cached for fast lookup.
+std::set<std::string> input_packages_set;
+
+// The active test target being built.
+std::string active_test_target;
 
 // The name of the sub directory inside the temporary directory where to place
 // the dynamically linked shared libraries.
@@ -111,6 +118,11 @@ void InitializePackages() {
   static_library_directory_path =
       GetTempDirectoryPath() / kStaticLibrariesSubdirectoryName;
   EnsureDirectoriesAndParentsExist(static_library_directory_path);
+
+  // Cache the input packages set for fast lookups.
+  ForEachInputPackage([](const std::string& input_path) {
+    input_packages_set.insert(GetPackageNameFromPath(input_path));
+  });
 }
 
 std::filesystem::path GetPackagePath(const std::string& name_or_path) {
@@ -174,3 +186,13 @@ const std::filesystem::path& GetDynamicLibraryDirectoryPath() {
 const std::filesystem::path& GetStaticLibraryDirectoryPath() {
   return static_library_directory_path;
 }
+
+bool IsPackageAnInputPackage(const std::string& package_name) {
+  return input_packages_set.contains(package_name);
+}
+
+void SetActiveTestTarget(const std::string& package_name) {
+  active_test_target = package_name;
+}
+
+std::string GetActiveTestTarget() { return active_test_target; }

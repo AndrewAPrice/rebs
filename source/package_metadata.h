@@ -106,12 +106,20 @@ struct PackageMetadata {
   std::vector<std::string> consolidated_dependencies;
   // The consolidated list of directoriees to scan for 'include' files.
   std::vector<std::filesystem::path> consolidated_includes;
+  // The consolidated list of directories to search for libraries in.
+  std::vector<std::filesystem::path> consolidated_library_search_directories;
+  // The consolidated list of directories to search for runtime binaries.
+  std::vector<std::filesystem::path> consolidated_runtime_search_directories;
   // The consolidated list of library objects to statically link against. This
   // is only set if this package is an application and is statically linked.
   std::vector<std::filesystem::path> statically_linked_library_objects;
   // The consolidated list of libraries to dynamically link against. This is
   // only set if the package is an applicaiton and is dynamically linked.
   std::vector<std::string> dynamically_linked_libaries;
+  // Test-only dependencies linked.
+  std::vector<std::string> test_dependencies;
+  // Whether to skip building this package during tests.
+  bool skip_for_tests = false;
 };
 
 // Returns the metadata for a package.

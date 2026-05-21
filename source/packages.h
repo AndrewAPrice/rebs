@@ -45,3 +45,14 @@ const std::filesystem::path& GetDynamicLibraryDirectoryPath();
 
 // Returns the path to where the build statically linked libraries live.
 const std::filesystem::path& GetStaticLibraryDirectoryPath();
+
+// Returns whether a package name is in the list of input packages being built.
+bool IsPackageAnInputPackage(const std::string& package_name);
+
+// Sets the package currently being built as the primary test target under
+// --test.
+void SetActiveTestTarget(const std::string& package_name);
+
+// Gets the package currently being built as the primary test target under
+// --test.
+std::string GetActiveTestTarget();

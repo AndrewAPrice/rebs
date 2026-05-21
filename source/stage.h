@@ -30,6 +30,6 @@ enum class Stage {
   LinkApplication = 2,
   // When the binaries and assets are copied to the destination path.
   CopyAssets = 3,
-  // When the applications run.
+  // When the applications or tests run.
   Run = 4
 };

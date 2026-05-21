@@ -152,6 +152,78 @@ Sometimes a library doesn't produce executable code to be linked against, for ex
   no_output_file: 1
 }
 ```
+
+## Unit testing
+
+REBS includes first-class support for compiling and running fast, host-native unit tests. To build and run the unit tests for your package, run:
+
+```bash
+rebs --test [PackageName]
+```
+
+You can also run tests with different optimization levels, for example:
+
+```bash
+rebs --test --optimized [PackageName]
+```
+
+Any arguments assigned to `--test`, e.g. `--test=Test1,Test2` are passed as command line arguments to the test executable. The intention of this is to allow test cases to be run individually, or filtered in any other way you might desire.
+
+## Test files
+
+By default, any source file whose name (excluding the extension) ends with `_test` (e.g., `widgets_test.cc`, `parser_test.cpp`, `assembler_test.S`) is considered a test file.
+
+* During regular builds (such as `rebs --build` or `rebs --run`), test files are completely ignored.
+* When running with `--test`, all files are compiled, with `TEST` defined in the preprocessor. Any file called `main` (without extensions, e.g. `main.cc`) is skipped. If your entry point is located in another file, you can wrap it in an `#ifndef TEST` block.
+
+### Test dependencies
+
+You can specify test-only dependencies using the `test_dependencies` property in your `.package.rebs.jsonnet` file. Unlike normal dependencies, `test_dependencies` are kept strictly localized and are not consolidated (e.g. if `Package A` depends on `Package B` which has `test_dependencies`, running the tests for `Package A` will not link with `Package B`'s `test_dependencies`.)
+
+If a core package dependency cannot be compiled or run natively on the host (for example, custom OS kernels, bare-metal drivers, or customized libraries like guest-targeted `musl`), you can set `skip_for_tests: true` in that dependency's `.package.rebs.jsonnet` configuration. When `--test` is invoked, REBS will automatically exclude any dependencies marked with `skip_for_tests: true` from the active build graph.
+
+### Test output
+
+When running unit tests, REBS captures and parses the standard output stream of the test executable byte-by-byte. It looks for special escape sequences of the format `\033[?<cmd_id>;<argument><terminator>` (where `\033` is the ASCII ESC character) to track progress and capture diagnostic logs.
+
+The following command IDs are recognized by REBS:
+
+*   `100` - **Total Tests**: Tells REBS how many test cases are in the suite.
+    *   Format: `\033[?100;<count>T` (or terminated with any control character `< 32` like `\x03`).
+*   `101` - **Test Started**: Tells REBS that a new test case is starting.
+    *   Format: `\033[?101;<test_name>\x03`
+*   `102` - **Test Passed**: Tells REBS that the currently running test case completed successfully.
+    *   Format: `\033[?102;`
+*   `103` - **Test Failed**: Tells REBS that the currently running test case has failed. All console output printed since the test started (`101`), plus any subsequent output printed before the next test starts or the process exits, is captured by REBS as the failure log for this test case.
+    *   Format: `\033[?103;`
+
+#### C++ Reporting Example
+
+You can easily print these control codes in your test runner. Here is a lightweight C++ helper implementation:
+
+```cpp
+
+// Reports the total number of test cases in the runner.
+inline void ReportTotalTests(int count) {
+    std::cout << "\033[?100;" << count << "T" << std::flush;
+}
+
+// Reports that a specific test case has started.
+inline void ReportTestStart(std::string_view test_name) {
+    std::cout << "\033[?101;" << test_name << "\x03" << std::flush;
+}
+
+// Reports that the currently running test case passed.
+inline void ReportTestPass() {
+    std::cout << "\033[?102;" << std::flush;
+}
+
+// Reports that the currently running test case failed. Print any error messages before calling this.
+inline void ReportTestFail() {
+    std::cout << "\033[?103;" << std::flush;
+}
+```
+
 ## Advanced topics
 
 ### How the Jsonnet configurations work
@@ -198,6 +270,8 @@ There are variables about the current build environment that can be accessed in 
 * `optimization_level` - Either `optimized`, `debug`, or `fast`.
 * `target_architecture` - The target architecture. e.g. `x86`
 * `target_os` - The target OS.
+* `is_testing` - Either `"true"` or `"false"`, indicating whether the compilation is for unit tests (i.e. when running `rebs --test`).
+
 
 ### Local universes
 Sometimes you might want a "universe" of packages to be isolated from the rest of the build system. For example, if you want are building software for an embedded system with its own set of libraries. If the directory you're running `rebs` from contains its own `.universe.rebs.jsonet` then it gets appended to the `~/.rebs.jsonnet` before appending a package's `.package.rebs.jsonet`.

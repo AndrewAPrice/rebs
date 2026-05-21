@@ -51,3 +51,16 @@ const std::vector<std::string> &GetKnownFlags();
 // Returns the target string for completion (only valid if InvocationAction is
 // Complete).
 const std::string &GetCompletionTarget();
+
+// Sets the target operating system (e.g., "linux", "windows", "osx").
+void SetTargetOS(const std::string &os);
+// Returns the target operating system.
+const std::string &GetTargetOS();
+
+// Sets the target architecture (e.g., "x64", "arm64").
+void SetTargetArch(const std::string &arch);
+// Returns the target architecture.
+const std::string &GetTargetArch();
+
+// Returns the test case or parameter passed to --test=...
+const std::string &GetTestArgument();

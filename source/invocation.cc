@@ -33,6 +33,9 @@ std::string completion_target;
 bool all_known_packages = false;
 bool update_third_party = false;
 bool verbose = false;
+std::string target_os;
+std::string target_arch;
+std::string test_argument;
 
 const std::vector<std::string> kKnownFlags = {
     "--all",       "--verbose",    "--build", "--clean",
@@ -65,8 +68,10 @@ Invocation action arguments:
   --optimized - Build will all optimizations enabled.
 
  Other arguments:
-  --verbose   - Be very verbose about the commands being ran and their output.
-  --help      - Print this message.
+  --os=<os>     - Override the target operating system.
+  --arch=<arch> - Override the target architecture.
+  --verbose     - Be very verbose about the commands being ran and their output.
+  --help        - Print this message.
 )";
 }
 
@@ -111,8 +116,19 @@ bool ParseInvocation(int argc, char* argv[]) {
       } else if (argument == "--generate-clangd") {
         invocation_action = InvocationAction::GenerateClangd;
         action_explicitly_set = true;
+      } else if (argument == "--test") {
+        invocation_action = InvocationAction::Test;
+        action_explicitly_set = true;
+      } else if (argument.starts_with("--test=")) {
+        invocation_action = InvocationAction::Test;
+        action_explicitly_set = true;
+        test_argument = argument.substr(7);
       } else if (argument == "--update") {
         update_third_party = true;
+      } else if (argument.starts_with("--os=")) {
+        target_os = argument.substr(5);
+      } else if (argument.starts_with("--arch=")) {
+        target_arch = argument.substr(7);
       } else if (argument == "--complete") {
         invocation_action = InvocationAction::Complete;
         action_explicitly_set = true;
@@ -165,3 +181,13 @@ bool ShouldBeVerbose() { return verbose; }
 const std::vector<std::string> &GetKnownFlags() { return kKnownFlags; }
 
 const std::string &GetCompletionTarget() { return completion_target; }
+
+const std::string &GetTargetOS() { return target_os; }
+
+void SetTargetOS(const std::string &os) { target_os = os; }
+
+const std::string &GetTargetArch() { return target_arch; }
+
+void SetTargetArch(const std::string &arch) { target_arch = arch; }
+
+const std::string &GetTestArgument() { return test_argument; }

@@ -1,4 +1,4 @@
-// Copyright 2024 Google LLC
+// Copyright 2026 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,11 +14,17 @@
 
 #pragma once
 
+#include <cstdio>
+#include <functional>
 #include <string>
 
-// Runs the packages requested in the input. Returns true if successful.
-bool RunPackages();
+enum class TestResult { Pass, Fail };
 
-// Runs the tests for the packages requested in the input natively. Returns true
-// if all passed.
-bool RunTests();
+// Parses the test output stream byte-by-byte, triggers appropriate event
+// callbacks, and returns the complete raw console log (excluding escape
+// sequences).
+std::string ParseTestOutput(
+    FILE* process_output, const std::function<void(int)>& on_total_tests,
+    const std::function<void(const std::string&)>& on_each_test_start,
+    const std::function<void(const std::string&, TestResult,
+                             const std::string&)>& on_test_result);

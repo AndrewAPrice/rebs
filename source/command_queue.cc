@@ -14,7 +14,9 @@
 
 #include "command_queue.h"
 
-#include <fstream>
+#include <atomic>
+#include <cctype>
+#include <cstdio>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -32,8 +34,8 @@
 #include "invocation.h"
 #include "stage.h"
 #include "string_replace.h"
-#include "temp_directory.h"
 #include "terminal.h"
+#include "test_parsing.h"
 
 namespace {
 
@@ -63,20 +65,146 @@ void RunCommands(const std::vector<std::unique_ptr<DeferredCommand>>& commands,
   bool should_be_verbose = ShouldBeVerbose();
 
   for (const auto& command : commands) {
+    std::string command_str = command->command;
+    std::string dependency_file = GetTempDependencyFilePath(0);
+    std::string quoted_dependency_file =
+        (std::stringstream() << std::quoted(dependency_file.c_str())).str();
+    ReplaceSubstringInString(command_str, "${deps file}",
+                             quoted_dependency_file);
+
     if (should_be_verbose) {
       std::cout << kEraseLine << "Running " << current_command_number++ << "/"
-                << queued_commands_count << ": " << command->command
-                << std::endl;
+                << queued_commands_count << ": " << command_str << std::endl;
     }
-    std::system(command->command.c_str());
+    std::system(command_str.c_str());
   }
+}
+
+struct TestCaseFailure {
+  std::string package_name;
+  std::string test_name;
+  std::string diagnostic_log;
+};
+
+// Runs the unit tests.
+bool ExecuteTestsStage(
+    const std::vector<std::unique_ptr<DeferredCommand>>& commands) {
+  std::atomic<int> total_tests = 0;
+  std::atomic<int> completed_tests = 0;
+  std::atomic<int> passed_tests = 0;
+  std::atomic<int> failed_tests = 0;
+
+  std::mutex term_mutex;
+  // Updates the message on the terminal.
+  auto update_live_terminal_status = [&]() {
+    std::scoped_lock lock(term_mutex);
+    std::cout << kEraseLine << "\rTesting " << completed_tests << " / "
+              << total_tests << " tests, " << passed_tests << " passed, "
+              << failed_tests << " failed." << std::flush;
+  };
+
+  // List of test failures to print after all unit tests are done executing.
+  std::vector<TestCaseFailure> global_failures;
+  std::mutex failures_mutex;
+
+  int total_commands = commands.size();
+  int next_command_index = 0;
+  std::mutex queue_mutex;
+  bool successful = true;
+
+  // Returns the next deferred command to get, or nullptr if there's no more
+  // commands.
+  auto get_next_deferred_command = [&]() -> DeferredCommand* {
+    std::scoped_lock lock(queue_mutex);
+    if (next_command_index >= total_commands) return nullptr;
+    return commands[next_command_index++].get();
+  };
+
+  int thread_count = std::min(total_commands, GetNumberOfParallelTasks());
+  std::vector<std::thread> threads;
+
+  for (int thread_no = 0; thread_no < thread_count; thread_no++) {
+    threads.push_back(std::thread([&]() {
+      while (auto* command = get_next_deferred_command()) {
+        std::string package_name =
+            command->source_file;  // Store the package name here.
+        std::string command_str = command->command + " 2>&1";
+
+        FILE* fp = popen(command_str.c_str(), "r");
+        if (!fp) {
+          std::scoped_lock lock(failures_mutex);
+          global_failures.push_back({package_name, "Process Launch Failure",
+                                     "Could not popen: " + command_str});
+          successful = false;
+          continue;
+        }
+
+        std::string suite_log = ParseTestOutput(
+            fp,
+            [&](int total) {
+              total_tests += total;
+              update_live_terminal_status();
+            },
+            [&](const std::string& name) {
+              // Start of test case
+            },
+            [&](const std::string& name, TestResult result,
+                const std::string& log) {
+              completed_tests++;
+              if (result == TestResult::Pass) {
+                passed_tests++;
+              } else {
+                failed_tests++;
+                std::scoped_lock lock(failures_mutex);
+                global_failures.push_back({package_name, name, log});
+              }
+              update_live_terminal_status();
+            });
+
+        int exit_code = pclose(fp);
+        if (exit_code != 0) {
+          successful = false;
+          if (failed_tests == 0) {
+            std::scoped_lock lock(failures_mutex);
+            global_failures.push_back(
+                {package_name, "Test Startup", suite_log});
+          }
+        }
+      }
+    }));
+  }
+
+  // Wait for all threads to finish executing.
+  for (auto& thread : threads) thread.join();
+  std::cout << kEraseLine;
+
+  if (!global_failures.empty()) {
+    for (const auto& fail : global_failures) {
+      std::cout << "[FAIL] Package: " << fail.package_name
+                << " | Test: " << fail.test_name << std::endl;
+      std::stringstream ss(fail.diagnostic_log);
+      std::string line;
+      while (std::getline(ss, line)) {
+        std::cout << "  " << line << std::endl;
+      }
+      std::cout << std::endl;
+    }
+  }
+
+  std::cout << "Testing complete: " << completed_tests << " / " << total_tests
+            << " tests, " << passed_tests << " passed, " << failed_tests
+            << " failed." << std::endl;
+
+  return successful;
 }
 
 bool ExecuteStage(Stage stage,
                   const std::vector<std::unique_ptr<DeferredCommand>>& commands,
                   int& current_command_number,
                   std::stringstream& combined_output) {
-  if (stage == Stage::Run || ShouldBeVerbose()) {
+  if (stage == Stage::Run && GetInvocationAction() == InvocationAction::Test) {
+    return ExecuteTestsStage(commands);
+  } else if (stage == Stage::Run || ShouldBeVerbose()) {
     RunCommands(commands, current_command_number);
     return true;
   }

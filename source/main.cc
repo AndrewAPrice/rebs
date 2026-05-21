@@ -14,7 +14,6 @@
 
 #include <filesystem>
 #include <iostream>
-#include <memory>
 
 #include "build.h"
 #include "clangd.h"
@@ -24,10 +23,8 @@
 #include "invocation.h"
 #include "invocation_action.h"
 #include "package_id.h"
-#include "package_metadata.h"
 #include "packages.h"
 #include "run.h"
-#include "stage.h"
 #include "temp_directory.h"
 #include "third_party.h"
 
@@ -49,7 +46,7 @@ bool HandleInvocation() {
   switch (GetInvocationAction()) {
     case InvocationAction::DeepClean:
       CleanRepositoriesDirectory();
-      ForEachKnownPackage([](const std::string &package_path_str) {
+      ForEachKnownPackage([](const std::string& package_path_str) {
         CleanThirdParty(package_path_str);
       });
       CleanCurrentConfigurationTempDirectory();
@@ -65,8 +62,8 @@ bool HandleInvocation() {
       if (!BuildPackages()) return false;
       return RunPackages();
     case InvocationAction::Test:
-      std::cerr << "Testing is not implement." << std::endl;
-      return false;
+      if (!BuildPackages()) return false;
+      return RunTests();
     case InvocationAction::List:
       ListPackages();
       return true;
@@ -79,15 +76,15 @@ bool HandleInvocation() {
       // If the target starts with a dash, then the user is probably trying to
       // auto-complete a flag.
       if (target.size() > 0 && target[0] == '-') {
-        const std::vector<std::string> &known_flags = GetKnownFlags();
-        for (const std::string &flag : known_flags) {
+        const std::vector<std::string>& known_flags = GetKnownFlags();
+        for (const std::string& flag : known_flags) {
           if (flag.rfind(target, 0) == 0) {
             std::cout << flag << std::endl;
           }
         }
       } else {
         // Otherwise, the user is likely trying to auto-complete a package.
-        ForEachKnownPackage([target](const std::string &package_path_str) {
+        ForEachKnownPackage([target](const std::string& package_path_str) {
           std::string package_name =
               GetPackageNameFromPath(std::filesystem::path(package_path_str));
           if (package_name.rfind(target, 0) == 0) {

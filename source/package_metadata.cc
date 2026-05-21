@@ -24,6 +24,7 @@
 #include <string>
 
 #include "config.h"
+#include "invocation.h"
 #include "nlohmann/json.hpp"
 #include "package_id.h"
 #include "packages.h"
@@ -37,6 +38,8 @@ constexpr int kDefaultIncludePriority = 1000;
 
 std::map<std::string, std::unique_ptr<PackageMetadata>>
     metadata_by_package_name;
+std::map<std::string, std::unique_ptr<PackageMetadata>>
+    test_metadata_by_package_name;
 
 void ForEachStringInConfigAray(
     nlohmann::json& config_array,
@@ -116,8 +119,10 @@ bool ParseConfigIntoMetadata(const std::string& package_name,
   PopulateVectorOfStringsFromConfigArray(config["public_defines"],
                                          metadata.public_defines);
   PopulateVectorOfStringsFromConfigArray(config["defines"], metadata.defines);
-  PopulateVectorOfStringsFromConfigArray(config["dependencies"],
-                                         metadata.dependencies);
+  ForEachStringInConfigAray(config["dependencies"],
+                            [&metadata](const std::string& dependency) {
+                              metadata.dependencies.push_back(dependency);
+                            });
 
   ForEachStringInConfigAray(
       config["files_to_ignore"],
@@ -150,13 +155,35 @@ bool ParseConfigIntoMetadata(const std::string& package_name,
     metadata.destination_directory = destination_directory_str;
   }
 
+  auto& skip_for_tests = config["skip_for_tests"];
+  if (skip_for_tests.is_boolean()) {
+    metadata.skip_for_tests = skip_for_tests.template get<bool>();
+  } else {
+    metadata.skip_for_tests = false;
+  }
+
+  bool is_test_target = (GetInvocationAction() == InvocationAction::Test &&
+                         package_name == GetActiveTestTarget());
+  if (is_test_target) {
+    ForEachStringInConfigAray(
+        config["test_dependencies"],
+        [&metadata](const std::string& test_dependency) {
+          metadata.test_dependencies.push_back(test_dependency);
+        });
+  }
+
   return true;
 }
 
 PackageMetadata* GetUnconsolidatedMetadataForPackage(
     const std::string& package_name) {
-  auto itr = metadata_by_package_name.find(package_name);
-  if (itr != metadata_by_package_name.end()) return itr->second.get();
+  bool is_test_target = (GetInvocationAction() == InvocationAction::Test &&
+                         package_name == GetActiveTestTarget());
+  auto& active_map =
+      is_test_target ? test_metadata_by_package_name : metadata_by_package_name;
+
+  auto itr = active_map.find(package_name);
+  if (itr != active_map.end()) return itr->second.get();
 
   SetPlaceholder("package name", package_name);
 
@@ -202,7 +229,7 @@ PackageMetadata* GetUnconsolidatedMetadataForPackage(
   metadata->package_id = GetIDOfPackageFromPath(package_path);
 
   PackageMetadata* metadata_ptr = metadata.get();
-  metadata_by_package_name[package_name] = std::move(metadata);
+  active_map[package_name] = std::move(metadata);
   return metadata_ptr;
 }
 
@@ -255,6 +282,15 @@ bool ConsolidateMetadataForPackage(const std::string& package_name,
     add_dependency(dependency);
   }
 
+  // If compiling in test mode, and this is a package we are running tests for,
+  // also pull in its test-only dependencies.
+  if (GetInvocationAction() == InvocationAction::Test &&
+      package_name == GetActiveTestTarget()) {
+    for (const auto& test_dependency : metadata.test_dependencies) {
+      add_dependency(test_dependency);
+    }
+  }
+
   // Defines are stored in a set because there's a possibility there could be
   // duplicates.
   std::set<std::string> defines;
@@ -281,7 +317,6 @@ bool ConsolidateMetadataForPackage(const std::string& package_name,
   // Walk through the dependencies.
   while (!dependencies_to_visit.empty()) {
     const auto& dependency = dependencies_to_visit.front();
-    metadata.consolidated_dependencies.push_back(dependency);
     auto* child_metadata = GetUnconsolidatedMetadataForPackage(dependency);
     if (!child_metadata) {
       std::cerr << std::quoted(package_name) << " depends on "
@@ -289,6 +324,14 @@ bool ConsolidateMetadataForPackage(const std::string& package_name,
                 << std::endl;
       return false;
     }
+
+    if (GetInvocationAction() == InvocationAction::Test &&
+        child_metadata->skip_for_tests) {
+      dependencies_to_visit.pop();
+      continue;
+    }
+
+    metadata.consolidated_dependencies.push_back(dependency);
     if (!child_metadata->IsLibrary()) {
       std::cerr << std::quoted(package_name) << " depends on "
                 << std::quoted(dependency) << " but the latter isn't a library."
@@ -297,7 +340,10 @@ bool ConsolidateMetadataForPackage(const std::string& package_name,
     }
 
     // Add values from this package.
-    if (!child_metadata->no_output_file && metadata.IsApplication()) {
+    bool treat_as_app = metadata.IsApplication() ||
+                        (GetInvocationAction() == InvocationAction::Test &&
+                         IsPackageAnInputPackage(package_name));
+    if (!child_metadata->no_output_file && treat_as_app) {
       if (metadata.statically_link || child_metadata->statically_link) {
         metadata.statically_linked_library_objects.push_back(
             child_metadata->statically_linked_library_output_path);

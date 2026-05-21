@@ -44,8 +44,7 @@ bool AddPackageToRun(const std::string& package_to_build) {
 
   auto command = std::make_unique<DeferredCommand>();
   command->command =
-      (std::stringstream() << std::quoted(metadata->output_path.c_str()))
-          .str();
+      (std::stringstream() << std::quoted(metadata->output_path.c_str())).str();
   QueueCommand(Stage::Run, std::move(command));
 
   return true;
@@ -73,6 +72,30 @@ void RunGlobalRunCommand(std::string_view global_run_command) {
   QueueCommand(Stage::Run, std::move(command));
 }
 
+// Adds a package to test, if it contains tests.
+bool AddPackageToTest(const std::string& package_to_test) {
+  auto* metadata = GetMetadataForPackage(package_to_test);
+  if (metadata == nullptr) return false;
+
+  std::filesystem::path test_exec_output_path =
+      metadata->temp_directory / (package_to_test + "_test");
+
+  std::stringstream cmd_stream;
+  cmd_stream << std::quoted(test_exec_output_path.c_str());
+  if (!GetTestArgument().empty()) {
+    cmd_stream << " " << std::quoted(GetTestArgument());
+  }
+
+  auto command = std::make_unique<DeferredCommand>();
+  command->command = cmd_stream.str();
+  command->destination_file = test_exec_output_path;
+  command->package_id = metadata->package_id;
+  command->source_file =
+      package_to_test;  // Store the package name in source_file.
+  QueueCommand(Stage::Run, std::move(command));
+  return true;
+}
+
 }  // namespace
 
 bool RunPackages() {
@@ -84,5 +107,17 @@ bool RunPackages() {
     RunGlobalRunCommand(global_run_command);
   }
 
+  return true;
+}
+
+bool RunTests() {
+  int tests_to_run = 0;
+  ForEachInputPackage([&tests_to_run](const std::string& package_path) {
+    if (AddPackageToTest(GetPackageNameFromPath(package_path))) tests_to_run++;
+  });
+  if (tests_to_run == 0) {
+    std::cerr << "No tests to run." << std::endl;
+    return false;
+  }
   return true;
 }

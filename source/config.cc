@@ -50,6 +50,7 @@ constexpr char kTempConcatinatedConfigFile[] = "temp.jsonnet";
 // The default config file contents.
 constexpr char kDefaultConfigFileContents[] = R"json(
 local optimization_level = std.extVar("optimization_level");
+local is_testing = std.extVar("is_testing") == "true";
 {
   local cpp_compiler = "clang++",
   local archiver = "llvm-ar",
@@ -84,7 +85,7 @@ local optimization_level = std.extVar("optimization_level");
       else " -g",
   "linker_command":
     if self.package_type == "application" then
-      cpp_compiler + application_linker_optimizations + " -o ${out} ${in}"
+      cpp_compiler + application_linker_optimizations + " -o ${out} ${in} ${library_search_paths} ${shared_libraries}"
     else if self.package_type == "library" then
       archiver + " rcs ${out} ${in}"
     else
@@ -137,6 +138,34 @@ int number_of_parallel_tasks;
 // individual package.
 std::string global_run_command;
 
+// Returns the host OS that REBS is running on.
+std::string GetHostOS() {
+#ifdef __APPLE__
+  return "osx";
+#elif __linux__
+  return "linux";
+#elif _WIN32
+  return "windows";
+#else
+  return "unknown";
+#endif
+}
+
+// Returns the host architecture than REBS is running on.
+std::string GetHostArch() {
+#if defined(__x86_64__) || defined(_M_X64)
+  return "x64";
+#elif defined(__i386__) || defined(_M_IX86)
+  return "x86";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  return "arm64";
+#elif defined(__arm__) || defined(_M_ARM)
+  return "arm";
+#else
+  return "unknown";
+#endif
+}
+
 // Returns the user's home directory.
 std::filesystem::path GetHomeDirectory() {
   // Check the POSIX home directory.
@@ -153,9 +182,10 @@ std::filesystem::path GetHomeDirectory() {
 
 // Populates the command used to call Jsonett.
 void PopulateJsonnettCommand() {
-  jsonet_command =
-      std::format("jsonnet --ext-str optimization_level=\"{}\"",
-                  OptimizationLevelToString(GetOptimizationLevel()));
+  jsonet_command = std::format(
+      "jsonnet --ext-str optimization_level=\"{}\" --ext-str is_testing=\"{}\"",
+      OptimizationLevelToString(GetOptimizationLevel()),
+      GetInvocationAction() == InvocationAction::Test ? "true" : "false");
 }
 
 // Gets the config file's path.
@@ -338,6 +368,29 @@ void ParseGlobalConfig() {
   auto global_run_command_val = global_config_file["global_run_command"];
   if (global_run_command_val.is_string())
     global_run_command = global_run_command_val.template get<std::string>();
+
+  if (GetInvocationAction() == InvocationAction::Test) {
+    SetTargetOS(GetHostOS());
+    SetTargetArch(GetHostArch());
+  } else {
+    if (GetTargetOS().empty()) {
+      auto default_os = global_config_file["default_os"];
+      if (default_os.is_string()) {
+        SetTargetOS(default_os.template get<std::string>());
+      } else {
+        SetTargetOS(GetHostOS());
+      }
+    }
+
+    if (GetTargetArch().empty()) {
+      auto default_arch = global_config_file["default_arch"];
+      if (default_arch.is_string()) {
+        SetTargetArch(default_arch.template get<std::string>());
+      } else {
+        SetTargetArch(GetHostArch());
+      }
+    }
+  }
 }
 
 }  // namespace

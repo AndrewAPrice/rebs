@@ -17,7 +17,6 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
-#include <map>
 #include <string>
 
 #include "config.h"
@@ -47,8 +46,11 @@ void InitializeTempDirectory() {
     temp_directory_path_without_optimization_level =
         std::filesystem::temp_directory_path() / kTempSubDirectoryName;
   }
-  temp_directory_path = temp_directory_path_without_optimization_level /
-                        OptimizationLevelToString(GetOptimizationLevel());
+  std::string opt_level_str =
+      std::string(OptimizationLevelToString(GetOptimizationLevel()));
+  if (GetInvocationAction() == InvocationAction::Test) opt_level_str += "-test";
+  temp_directory_path =
+      temp_directory_path_without_optimization_level / opt_level_str;
   EnsureDirectoriesAndParentsExist(temp_directory_path);
   SetPlaceholder("temp directory", std::string(temp_directory_path));
 }
@@ -91,7 +93,9 @@ void CleanCurrentConfigurationTempDirectory() {
   if (!temp_directory_path.empty()) {
     DeleteFolderIfItExists(temp_directory_path);
   } else {
-    std::cerr << "Warning: temp_directory_path was not initialized before cleaning." << std::endl;
+    std::cerr
+        << "Warning: temp_directory_path was not initialized before cleaning."
+        << std::endl;
   }
 }
 
