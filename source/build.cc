@@ -402,9 +402,17 @@ bool BuildPackage(const std::string& package_name) {
           cmd_stream << BuildStringOfStringsFromVectorOfStringAndPrefix(
               " -l", metadata->dynamically_linked_libaries);
         }
+        bool has_dynamic_lib_dir = false;
         for (const auto& dir :
              metadata->consolidated_library_search_directories) {
+          if (dir == GetDynamicLibraryDirectoryPath()) {
+            has_dynamic_lib_dir = true;
+          }
           cmd_stream << " -L" << std::quoted(dir.c_str());
+        }
+        if (!has_dynamic_lib_dir) {
+          cmd_stream << " -L"
+                     << std::quoted(GetDynamicLibraryDirectoryPath().c_str());
         }
 
         auto command = std::make_unique<DeferredCommand>();
