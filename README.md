@@ -354,6 +354,7 @@ The `repositories` array defines external sources to fetch. Each repository must
 
 Supported types:
 *   `git` - Clones a git repository.
+*   `svn` - Checks out a subversion repository.
 *   `zip` - Downloads and unzips a file.
 *   `download` - Downloads a single file.
 

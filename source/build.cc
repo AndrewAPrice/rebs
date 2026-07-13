@@ -247,6 +247,11 @@ bool BuildPackage(const std::string& package_name) {
     return false;
   }
 
+  if (GetInvocationAction() == InvocationAction::Test &&
+      metadata->skip_for_tests) {
+    return true;
+  }
+
   // Applications should build dependent libraries first.
   if (metadata->IsApplication() || is_testing_this_package) {
     for (const auto& dependency : metadata->consolidated_dependencies)

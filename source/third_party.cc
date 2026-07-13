@@ -291,6 +291,15 @@ bool LoadRepository(const json &repo_meta, PlaceholderInfo &info) {
         return false;
     }
     dir = extracted_dir;
+  } else if (type == "svn") {
+    if (std::filesystem::exists(dir)) {
+      std::cout << "Updating " << url << std::endl;
+      if (!ExecuteSystemCommand("svn update " + dir.string())) return false;
+    } else {
+      std::cout << "Checking out " << url << std::endl;
+      if (!ExecuteSystemCommand("svn checkout " + url + " " + dir.string()))
+        return false;
+    }
   } else {
     std::cerr << "Unknown repository type: " << type << std::endl;
     return false;
