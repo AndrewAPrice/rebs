@@ -358,6 +358,28 @@ bool BuildPackage(const std::string& package_name) {
         test_exec_timestamp = GetTimestampOfFile(test_exec_output_path);
       }
 
+      if (!lib_requires_linking) {
+        size_t test_lib_timestamp = GetTimestampOfFile(test_lib_output_path);
+        for (const auto& object_file : object_files_to_link) {
+          size_t obj_timestamp = GetTimestampOfFile(object_file);
+          if (obj_timestamp == 0 || obj_timestamp > test_lib_timestamp) {
+            lib_requires_linking = true;
+            test_exec_requires_linking = true;
+            break;
+          }
+        }
+      }
+
+      if (!test_exec_requires_linking) {
+        for (const auto& test_obj : test_object_files_to_link) {
+          size_t obj_timestamp = GetTimestampOfFile(test_obj);
+          if (obj_timestamp == 0 || obj_timestamp > test_exec_timestamp) {
+            test_exec_requires_linking = true;
+            break;
+          }
+        }
+      }
+
       for (const auto& library_object :
            metadata->statically_linked_library_objects) {
         if (!test_exec_requires_linking) {
@@ -435,6 +457,17 @@ bool BuildPackage(const std::string& package_name) {
         requires_linking = true;
       }
 
+      // Check if any of this package's object files are newer than the linked output.
+      if (!requires_linking) {
+        for (const auto& object_file : object_files_to_link) {
+          size_t obj_timestamp = GetTimestampOfFile(object_file);
+          if (obj_timestamp == 0 || obj_timestamp > object_file_timestamp) {
+            requires_linking = true;
+            break;
+          }
+        }
+      }
+
       for (const auto& library_object :
            metadata->statically_linked_library_objects) {
         object_files_to_link.push_back(library_object);
@@ -452,10 +485,36 @@ bool BuildPackage(const std::string& package_name) {
       if (metadata->IsLibrary())
         shared_library_path = GetDynamicLibraryDirectoryPath() /
                               (std::string("lib") + package_name + ".so");
-      if (!requires_linking && !shared_library_path.empty() &&
-          !DoesFileExist(shared_library_path)) {
-        // The  shared variant does not exists and needs to be created.
-        requires_linking = true;
+      if (!requires_linking && !shared_library_path.empty()) {
+        if (!DoesFileExist(shared_library_path)) {
+          requires_linking = true;
+        } else {
+          size_t shared_lib_timestamp = GetTimestampOfFile(shared_library_path);
+          for (const auto& object_file : object_files_to_link) {
+            size_t obj_timestamp = GetTimestampOfFile(object_file);
+            if (obj_timestamp == 0 || obj_timestamp > shared_lib_timestamp) {
+              requires_linking = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!requires_linking && metadata->IsLibrary() &&
+          !metadata->statically_linked_library_output_path.empty()) {
+        if (!DoesFileExist(metadata->statically_linked_library_output_path)) {
+          requires_linking = true;
+        } else {
+          size_t static_lib_timestamp =
+              GetTimestampOfFile(metadata->statically_linked_library_output_path);
+          for (const auto& object_file : object_files_to_link) {
+            size_t obj_timestamp = GetTimestampOfFile(object_file);
+            if (obj_timestamp == 0 || obj_timestamp > static_lib_timestamp) {
+              requires_linking = true;
+              break;
+            }
+          }
+        }
       }
 
       if (requires_linking) {
