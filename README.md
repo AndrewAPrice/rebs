@@ -386,6 +386,10 @@ Supported operations:
         *   `prepend`: String to prepend to the file.
 *   **createDirectory**: Creates directories.
     *   `path`: Path(s) to create.
+*   **dirname**: Computes parent directories using path manipulation.
+    *   `path`: Input path (can contain placeholders).
+    *   `depth`: (Optional) Number of parent levels to traverse up (default `1`).
+    *   `placeholder`: Variable name to store the resulting directory path.
 *   **evaluate**: Evaluates Python expressions to generate variables.
     *   `values`: Map of variable names to expressions.
 *   **execute**: Executes a shell command.
@@ -394,6 +398,12 @@ Supported operations:
     *   `inputs`: (Optional) List of input files (for cache invalidation).
     *   `outputs`: (Optional) List of output files (for cache invalidation).
     *   `alwaysRun`: (Optional) Boolean to force execution every time.
+*   **findFile**: Locates a file or executable binary on the system.
+    *   `placeholder`: Variable name to store the resolved file path.
+    *   `names`: (Optional) File name or list of file names to search for.
+    *   `searchPaths`: (Optional) List of directory paths to search. Defaults to `["PATH"]`. Use `"PATH"` to search the system `PATH` environment variable.
+    *   `executable`: (Optional) Boolean to require the matching file to be executable (default `false`).
+    *   `required`: (Optional) Boolean indicating if the file must be found (default `true`).
 *   **joinArray**: Joins an array of strings into a single string.
     *   `value`: Array of strings (or single string) to join.
     *   `joint`: Separator string.
@@ -408,6 +418,9 @@ Supported operations:
     *   `values`: Map where keys are comma-separated variable names and values are regex patterns.
 *   **set**: Sets variables directly.
     *   `values`: Map of variable names to values (strings or arrays).
+*   **writeFile**: Writes inline text content to a destination file.
+    *   `path`: Target path to write to (can use placeholders; if inside package, tracked for clean).
+    *   `content`: String or array of strings (lines) to write.
 
 #### Example `third_party.json`
 
@@ -439,6 +452,11 @@ Supported operations:
 ### Strings and Placeholders
 
 All string values in `third_party.json` can contain placeholders using the syntax `${variable}`.
+
+#### Built-in Placeholders
+
+*   `${@}`: The root directory path of the current package.
+*   `${temp}`: A package-scoped temporary workspace directory (`<temp>/third_party/<package_name>`), automatically cleaned during clean operations.
 
 #### Expansion Rules
 
