@@ -46,39 +46,14 @@ namespace {
 std::set<std::string> compiled_packages;
 std::set<std::string> compiled_test_packages;
 
-// Returns the starting and ending position of the stem of the filename (not
-// including directory separators or extensions).
-void GetStemBoundaries(const std::string& native_str, size_t& filename_start,
-                       size_t& ext_start) {
-  size_t last_slash = native_str.find_last_of("/\\");
-  filename_start = (last_slash == std::string::npos) ? 0 : last_slash + 1;
-
-  size_t last_dot = native_str.find_last_of('.');
-  ext_start = (last_dot == std::string::npos || last_dot < filename_start)
-                  ? native_str.size()
-                  : last_dot;
-}
-
 // Returns whether the filename ends in "_test" (without extensions).
 bool IsTestFile(const std::filesystem::path& path) {
-  const auto& native_str = path.native();
-  size_t filename_start = 0;
-  size_t ext_start = 0;
-  GetStemBoundaries(native_str, filename_start, ext_start);
-
-  size_t stem_len = ext_start - filename_start;
-  return stem_len >= 5 && native_str.compare(ext_start - 5, 5, "_test") == 0;
+  return path.stem().native().ends_with("_test");
 }
 
 // Returns whether the filename is "main" (without extensions).
 bool IsMainFile(const std::filesystem::path& path) {
-  const auto& native_str = path.native();
-  size_t filename_start = 0;
-  size_t ext_start = 0;
-  GetStemBoundaries(native_str, filename_start, ext_start);
-
-  size_t stem_len = ext_start - filename_start;
-  return stem_len == 4 && native_str.compare(filename_start, 4, "main") == 0;
+  return path.stem() == "main";
 }
 
 // The name of the subdirectory inside of the package's temporary directory to
@@ -86,7 +61,8 @@ bool IsMainFile(const std::filesystem::path& path) {
 constexpr char kObjectsSubDirectory[] = "objects";
 
 template <typename T>
-std::string JoinVectorWithPrefix(const std::vector<T>& elements, std::string_view prefix, bool quote = false) {
+std::string JoinVectorWithPrefix(const std::vector<T>& elements,
+                                 std::string_view prefix, bool quote = false) {
   std::stringstream ss;
   for (const auto& el : elements) {
     ss << " " << prefix;
@@ -114,7 +90,8 @@ std::string BuildCIncludes(const PackageMetadata& metadata) {
 
 // Builds the C pre-processor DEFINE arguments.
 std::string BuildCDefines(const PackageMetadata& metadata) {
-  std::string defines_str = JoinVectorWithPrefix(metadata.consolidated_defines, "-D", false);
+  std::string defines_str =
+      JoinVectorWithPrefix(metadata.consolidated_defines, "-D", false);
   if (GetInvocationAction() == InvocationAction::Test) {
     defines_str += " -DTEST";
   }
@@ -183,21 +160,39 @@ void ForEachAssetFile(
   }
 }
 
-void CopyAssetIfNewer(const std::filesystem::path& source,
-                      const std::filesystem::path& destination) {
-  if (GetTimestampOfFile(source) <= GetTimestampOfFile(destination)) return;
-
+// Queues a deferred command with source and destination files.
+void QueueDeferredCommand(Stage stage, size_t package_id,
+                          std::string command_str,
+                          const std::filesystem::path& destination_file = {},
+                          const std::filesystem::path& source_file = {}) {
   auto command = std::make_unique<DeferredCommand>();
-  command->command =
+  command->command = std::move(command_str);
+  command->destination_file = destination_file.string();
+  command->source_file = source_file.string();
+  command->package_id = package_id;
+  QueueCommand(stage, std::move(command));
+}
+
+// Queues a command to copy a file and updates the destination timestamp.
+void QueueCopyFile(const std::filesystem::path& source,
+                   const std::filesystem::path& destination,
+                   size_t package_id = 0) {
+  std::string cmd =
       (std::stringstream() << "cp " << std::quoted(source.c_str()) << " "
                            << std::quoted(destination.c_str()))
           .str();
-  QueueCommand(Stage::CopyAssets, std::move(command));
-
+  QueueDeferredCommand(Stage::CopyAssets, package_id, std::move(cmd),
+                       destination, source);
   SetTimestampOfFileToNow(destination);
 }
 
-void CopyAssetFilesForPackage(PackageMetadata& metadata) {
+void CopyAssetIfNewer(const std::filesystem::path& source,
+                      const std::filesystem::path& destination) {
+  if (GetTimestampOfFile(source) <= GetTimestampOfFile(destination)) return;
+  QueueCopyFile(source, destination);
+}
+
+void CopyAssetFilesForPackage(const PackageMetadata& metadata) {
   ForEachAssetFile(metadata, CopyAssetIfNewer);
 }
 
@@ -206,20 +201,330 @@ void QueueArchiveCommand(const std::filesystem::path& output_path,
                          const PackageMetadata& metadata) {
   std::string inputs = BuildStringOfFilesFromVectorOfFiles(input_files);
 
-  auto command = std::make_unique<DeferredCommand>();
   std::string cmd_template = metadata.static_linker_command;
   if (cmd_template.empty()) {
     cmd_template = "ar rcs ${out} ${in}";
   }
-  command->command = cmd_template;
-  SetPlaceholder("out", (std::stringstream() << std::quoted(output_path.c_str())).str());
+  SetPlaceholder(
+      "out", (std::stringstream() << std::quoted(output_path.c_str())).str());
   SetPlaceholder("in", inputs);
-  ReplacePlaceholdersInString(command->command);
+  ReplacePlaceholdersInString(cmd_template);
 
-  command->destination_file = output_path;
-  command->package_id = metadata.package_id;
+  QueueDeferredCommand(Stage::LinkLibrary, metadata.package_id,
+                       std::move(cmd_template), output_path);
+  SetTimestampOfFileToNow(output_path);
+}
 
-  QueueCommand(Stage::LinkLibrary, std::move(command));
+void QueueCompileCommand(const PackageMetadata& metadata,
+                         const std::filesystem::path& source_file,
+                         const std::filesystem::path& object_file,
+                         std::string cmd_template) {
+  SetPlaceholder(
+      "out", (std::stringstream() << std::quoted(object_file.c_str())).str());
+  SetPlaceholder(
+      "in", (std::stringstream() << std::quoted(source_file.c_str())).str());
+  ReplacePlaceholdersInString(cmd_template);
+  QueueDeferredCommand(Stage::Compile, metadata.package_id,
+                       std::move(cmd_template), object_file, source_file);
+}
+
+// Forward declaration.
+bool BuildPackage(const std::string& package_name);
+
+// Builds dependencies required by an application or active test target.
+bool BuildDependencies(const PackageMetadata& metadata, bool is_testing) {
+  if (!metadata.IsApplication() && !is_testing) return true;
+
+  for (const auto& dependency : metadata.consolidated_dependencies) {
+    if (!BuildPackage(dependency)) return false;
+  }
+
+  if (is_testing) {
+    for (const auto& test_dependency : metadata.test_dependencies) {
+      if (!BuildPackage(test_dependency)) return false;
+    }
+  }
+  return true;
+}
+
+// Sets common placeholders for package build commands.
+void SetPackagePlaceholders(const PackageMetadata& metadata,
+                            const std::string& package_name) {
+  SetPlaceholder("package name", package_name);
+  SetPlaceholder("cdefines", BuildCDefines(metadata));
+  SetPlaceholder("cincludes", BuildCIncludes(metadata));
+}
+
+void BuildAndLinkNormalPackage(const PackageMetadata& metadata,
+                               const std::string& package_name) {
+  size_t output_timestamp = GetTimestampOfFile(metadata.output_path);
+  bool requires_linking = (output_timestamp == 0);
+  size_t target_timestamp = output_timestamp;
+
+  std::filesystem::path shared_library_path;
+  if (metadata.IsLibrary()) {
+    shared_library_path = GetDynamicLibraryDirectoryPath() /
+                          (std::string("lib") + package_name + ".so");
+    size_t shared_lib_timestamp = GetTimestampOfFile(shared_library_path);
+    if (shared_lib_timestamp == 0) {
+      requires_linking = true;
+    }
+    target_timestamp = std::min(target_timestamp, shared_lib_timestamp);
+
+    if (!metadata.statically_linked_library_output_path.empty()) {
+      size_t static_lib_timestamp =
+          GetTimestampOfFile(metadata.statically_linked_library_output_path);
+      if (static_lib_timestamp == 0) {
+        requires_linking = true;
+      }
+      target_timestamp = std::min(target_timestamp, static_lib_timestamp);
+    }
+  }
+
+  std::vector<std::filesystem::path> object_files_to_link;
+
+  ForEachSourceFile(
+      metadata, [&](const std::filesystem::path& source_file,
+                    const std::filesystem::path& destination_file) {
+        auto build_command_itr = metadata.build_commands_by_file_extension.find(
+            source_file.extension());
+        if (build_command_itr ==
+            metadata.build_commands_by_file_extension.end())
+          return;
+
+        if (metadata.files_to_ignore.contains(source_file)) return;
+
+        // Skip test files during normal package builds.
+        if (IsTestFile(source_file)) return;
+
+        auto object_file = destination_file.string() + ".o";
+        object_files_to_link.push_back(object_file);
+
+        if (!AreDependenciesNewerThanFile(metadata.package_id,
+                                          metadata.metadata_timestamp,
+                                          object_file)) {
+          if (!requires_linking &&
+              GetTimestampOfFile(object_file) > target_timestamp) {
+            requires_linking = true;
+          }
+          return;
+        }
+
+        QueueCompileCommand(metadata, source_file, object_file,
+                            build_command_itr->second);
+        requires_linking = true;
+      });
+
+  for (const auto& library_object :
+       metadata.statically_linked_library_objects) {
+    object_files_to_link.push_back(library_object);
+    if (!requires_linking) {
+      size_t library_timestamp = GetTimestampOfFile(library_object);
+      if (library_timestamp == 0 ||
+          library_timestamp > metadata.metadata_timestamp ||
+          library_timestamp > target_timestamp) {
+        requires_linking = true;
+      }
+    }
+  }
+
+  if (!requires_linking) return;
+
+  std::string input_files =
+      BuildStringOfFilesFromVectorOfFiles(object_files_to_link);
+  SetPlaceholder("in", input_files);
+
+  if (metadata.IsApplication()) {
+    SetTimestampOfFileToNow(metadata.output_path);
+    std::string cmd = metadata.statically_link ? metadata.static_linker_command
+                                               : metadata.linker_command;
+    SetPlaceholder("out", (std::stringstream()
+                           << std::quoted(metadata.output_path.c_str()))
+                              .str());
+    SetPlaceholder("shared_libraries",
+                   BuildStringOfStringsFromVectorOfStringAndPrefix(
+                       "-l ", metadata.dynamically_linked_libaries));
+    SetPlaceholder(
+        "library_search_paths",
+        JoinVectorWithPrefix(metadata.consolidated_library_search_directories,
+                             "-L", true));
+    ReplacePlaceholdersInString(cmd);
+
+    QueueDeferredCommand(GetLinkerStage(metadata), metadata.package_id,
+                         std::move(cmd), metadata.output_path);
+  } else if (metadata.IsLibrary()) {
+    // Dynamically link.
+    SetTimestampOfFileToNow(shared_library_path);
+    std::string cmd = metadata.linker_command;
+    SetPlaceholder(
+        "out", (std::stringstream() << std::quoted(shared_library_path.c_str()))
+                   .str());
+    ReplacePlaceholdersInString(cmd);
+    QueueDeferredCommand(GetLinkerStage(metadata), metadata.package_id,
+                         std::move(cmd), shared_library_path);
+
+    // Copy the file to the destination directory.
+    QueueCopyFile(shared_library_path, metadata.output_path,
+                  metadata.package_id);
+
+    // Statically link.
+    QueueArchiveCommand(metadata.statically_linked_library_output_path,
+                        object_files_to_link, metadata);
+  }
+}
+
+void BuildAndLinkTestPackage(const PackageMetadata& metadata,
+                             const std::string& package_name) {
+  auto test_lib_output_path =
+      metadata.temp_directory / (package_name + "_lib.a");
+  auto test_exec_output_path =
+      metadata.temp_directory / (package_name + "_test");
+
+  size_t test_lib_timestamp = GetTimestampOfFile(test_lib_output_path);
+  size_t test_exec_timestamp = GetTimestampOfFile(test_exec_output_path);
+
+  bool lib_requires_linking = (test_lib_timestamp == 0);
+  bool test_exec_requires_linking =
+      lib_requires_linking || (test_exec_timestamp == 0);
+
+  std::vector<std::filesystem::path> object_files_to_link;
+  std::vector<std::filesystem::path> test_object_files_to_link;
+
+  ForEachSourceFile(
+      metadata, [&](const std::filesystem::path& source_file,
+                    const std::filesystem::path& destination_file) {
+        auto build_command_itr = metadata.build_commands_by_file_extension.find(
+            source_file.extension());
+        if (build_command_itr ==
+            metadata.build_commands_by_file_extension.end())
+          return;
+
+        if (metadata.files_to_ignore.contains(source_file)) return;
+
+        bool is_test = IsTestFile(source_file);
+        // Skip the main file if testing this package.
+        if (!is_test && IsMainFile(source_file)) return;
+
+        auto object_file = destination_file.string() + ".o";
+
+        if (is_test) {
+          test_object_files_to_link.push_back(object_file);
+        } else {
+          object_files_to_link.push_back(object_file);
+        }
+
+        if (!AreDependenciesNewerThanFile(metadata.package_id,
+                                          metadata.metadata_timestamp,
+                                          object_file)) {
+          size_t obj_timestamp = GetTimestampOfFile(object_file);
+          if (is_test) {
+            if (!test_exec_requires_linking &&
+                obj_timestamp > test_exec_timestamp) {
+              test_exec_requires_linking = true;
+            }
+          } else {
+            if (!lib_requires_linking && obj_timestamp > test_lib_timestamp) {
+              lib_requires_linking = true;
+              test_exec_requires_linking = true;
+            }
+          }
+          return;
+        }
+
+        QueueCompileCommand(metadata, source_file, object_file,
+                            build_command_itr->second);
+        if (is_test) {
+          test_exec_requires_linking = true;
+        } else {
+          lib_requires_linking = true;
+          test_exec_requires_linking = true;
+        }
+      });
+
+  for (const auto& library_object :
+       metadata.statically_linked_library_objects) {
+    if (!test_exec_requires_linking) {
+      size_t library_timestamp = GetTimestampOfFile(library_object);
+      if (library_timestamp == 0 ||
+          library_timestamp > metadata.metadata_timestamp ||
+          library_timestamp > test_exec_timestamp) {
+        test_exec_requires_linking = true;
+      }
+    }
+  }
+
+  if (lib_requires_linking) {
+    QueueArchiveCommand(test_lib_output_path, object_files_to_link, metadata);
+  }
+
+  if (test_exec_requires_linking) {
+    std::vector<std::filesystem::path> files_to_link =
+        test_object_files_to_link;
+    files_to_link.push_back(test_lib_output_path);
+    for (const auto& library_object :
+         metadata.statically_linked_library_objects) {
+      files_to_link.push_back(library_object);
+    }
+    std::string input_files =
+        BuildStringOfFilesFromVectorOfFiles(files_to_link);
+    SetPlaceholder("in", input_files);
+
+    SetTimestampOfFileToNow(test_exec_output_path);
+
+    std::string compiler = "clang++";
+    auto cc_itr = metadata.build_commands_by_file_extension.find(".cc");
+    if (cc_itr != metadata.build_commands_by_file_extension.end()) {
+      std::string cmd = cc_itr->second;
+      size_t first_space = cmd.find(' ');
+      if (first_space != std::string::npos) {
+        compiler = cmd.substr(0, first_space);
+      }
+    }
+
+    std::stringstream cmd_stream;
+    cmd_stream << compiler << " -o "
+               << std::quoted(test_exec_output_path.c_str()) << " "
+               << input_files;
+
+    if (!metadata.dynamically_linked_libaries.empty()) {
+      cmd_stream << BuildStringOfStringsFromVectorOfStringAndPrefix(
+          " -l", metadata.dynamically_linked_libaries);
+    }
+    bool has_dynamic_lib_dir = false;
+    for (const auto& dir : metadata.consolidated_library_search_directories) {
+      if (dir == GetDynamicLibraryDirectoryPath()) {
+        has_dynamic_lib_dir = true;
+      }
+      cmd_stream << " -L" << std::quoted(dir.c_str());
+    }
+    if (!has_dynamic_lib_dir) {
+      cmd_stream << " -L"
+                 << std::quoted(GetDynamicLibraryDirectoryPath().c_str());
+    }
+
+    QueueDeferredCommand(Stage::LinkApplication, metadata.package_id,
+                         cmd_stream.str(), test_exec_output_path);
+  }
+}
+
+void CopyPackageAssets(const PackageMetadata& metadata) {
+  if (metadata.destination_directory.empty()) return;
+
+  if (!metadata.asset_directories.empty()) {
+    CopyAssetFilesForPackage(metadata);
+  }
+  // Copy vcpkg runtime assets (e.g. DLLs, .so)
+  for (const auto& dir : metadata.consolidated_runtime_search_directories) {
+    if (!std::filesystem::exists(dir)) continue;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+      if (entry.is_directory()) continue;
+      std::string ext = entry.path().extension().string();
+      if (ext == ".dll" || ext == ".so" || ext == ".dylib") {
+        CopyAssetIfNewer(entry.path(), metadata.destination_directory /
+                                           entry.path().filename());
+      }
+    }
+  }
 }
 
 bool BuildPackage(const std::string& package_name) {
@@ -227,17 +532,12 @@ bool BuildPackage(const std::string& package_name) {
       (GetInvocationAction() == InvocationAction::Test &&
        package_name == GetActiveTestTarget());
 
-  if (is_testing_this_package) {
-    if (compiled_test_packages.contains(package_name)) return true;
-    compiled_test_packages.insert(package_name);
-  } else {
-    if (compiled_packages.contains(package_name)) return true;
-    compiled_packages.insert(package_name);
-  }
+  auto& visited =
+      is_testing_this_package ? compiled_test_packages : compiled_packages;
+  if (!visited.insert(package_name).second) return true;
 
   std::filesystem::path package_path = GetPackagePathFromName(package_name);
-  if (!MaybeUpdateThirdPartyBeforeBuilding(package_path))
-    return false;
+  if (!MaybeUpdateThirdPartyBeforeBuilding(package_path)) return false;
   MaybeGenerateClangdForPackage(package_name);
 
   auto metadata = GetMetadataForPackage(package_name);
@@ -252,359 +552,22 @@ bool BuildPackage(const std::string& package_name) {
     return true;
   }
 
-  // Applications should build dependent libraries first.
-  if (metadata->IsApplication() || is_testing_this_package) {
-    for (const auto& dependency : metadata->consolidated_dependencies)
-      if (!BuildPackage(dependency)) return false;
+  if (!BuildDependencies(*metadata, is_testing_this_package)) return false;
 
-    if (is_testing_this_package) {
-      for (const auto& test_dependency : metadata->test_dependencies) {
-        if (!BuildPackage(test_dependency)) return false;
-      }
-    }
-  }
-
-  if (!metadata->destination_directory.empty())
+  if (!metadata->destination_directory.empty()) {
     EnsureDirectoriesAndParentsExist(metadata->destination_directory);
+  }
 
   if (!metadata->no_output_file) {
-    std::vector<std::filesystem::path> object_files_to_link;
-
-    SetPlaceholder("package name", std::string(package_name));
-    SetPlaceholder("cdefines", BuildCDefines(*metadata));
-    SetPlaceholder("cincludes", BuildCIncludes(*metadata));
-
-    bool requires_linking = false;
-
-    std::vector<std::filesystem::path> test_object_files_to_link;
-
-    ForEachSourceFile(
-        *metadata, [metadata, &object_files_to_link, &test_object_files_to_link,
-                    &requires_linking, is_testing_this_package](
-                       const std::filesystem::path& source_file,
-                       const std::filesystem::path& destination_file) {
-          auto build_command_itr =
-              metadata->build_commands_by_file_extension.find(
-                  source_file.extension());
-          if (build_command_itr ==
-              metadata->build_commands_by_file_extension.end())
-            return;
-
-          if (metadata->files_to_ignore.find(source_file) !=
-              metadata->files_to_ignore.end()) {
-            return;
-          }
-
-          bool is_test = IsTestFile(source_file);
-          // Ignore test files if not running tests.
-          if (GetInvocationAction() != InvocationAction::Test && is_test)
-            return;
-
-          // If compiling the test executable for this package, split the files
-          // between tests and non-test files.
-          if (is_testing_this_package) {
-            if (!is_test && IsMainFile(source_file))
-              return;  // Skip the main file if testing this package.
-          } else {
-            // If compiling a regular dependency during a test run, or a normal
-            // build, ignore test files.
-            if (is_test) return;
-          }
-
-          auto object_file = std::string(destination_file) + ".o";
-
-          if (is_test) {
-            test_object_files_to_link.push_back(object_file);
-          } else {
-            object_files_to_link.push_back(object_file);
-          }
-
-          if (!AreDependenciesNewerThanFile(metadata->package_id,
-                                            metadata->metadata_timestamp,
-                                            object_file)) {
-            return;
-          }
-
-          // if (source_file.extension)
-          auto command = std::make_unique<DeferredCommand>();
-          command->command = build_command_itr->second;
-          SetPlaceholder(
-              "out",
-              (std::stringstream() << std::quoted(object_file.c_str())).str());
-          SetPlaceholder(
-              "in",
-              (std::stringstream() << std::quoted(source_file.c_str())).str());
-          ReplacePlaceholdersInString(command->command);
-          command->source_file = source_file;
-          command->destination_file = object_file;
-          command->package_id = metadata->package_id;
-          QueueCommand(Stage::Compile, std::move(command));
-          requires_linking = true;
-        });
-
+    SetPackagePlaceholders(*metadata, package_name);
     if (is_testing_this_package) {
-      std::filesystem::path test_lib_output_path =
-          metadata->temp_directory / (package_name + "_lib.a");
-      std::filesystem::path test_exec_output_path =
-          metadata->temp_directory / (package_name + "_test");
-
-      bool lib_requires_linking =
-          requires_linking || !DoesFileExist(test_lib_output_path);
-      bool test_exec_requires_linking =
-          lib_requires_linking || !DoesFileExist(test_exec_output_path);
-
-      size_t test_exec_timestamp = 0;
-      if (DoesFileExist(test_exec_output_path)) {
-        test_exec_timestamp = GetTimestampOfFile(test_exec_output_path);
-      }
-
-      if (!lib_requires_linking) {
-        size_t test_lib_timestamp = GetTimestampOfFile(test_lib_output_path);
-        for (const auto& object_file : object_files_to_link) {
-          size_t obj_timestamp = GetTimestampOfFile(object_file);
-          if (obj_timestamp == 0 || obj_timestamp > test_lib_timestamp) {
-            lib_requires_linking = true;
-            test_exec_requires_linking = true;
-            break;
-          }
-        }
-      }
-
-      if (!test_exec_requires_linking) {
-        for (const auto& test_obj : test_object_files_to_link) {
-          size_t obj_timestamp = GetTimestampOfFile(test_obj);
-          if (obj_timestamp == 0 || obj_timestamp > test_exec_timestamp) {
-            test_exec_requires_linking = true;
-            break;
-          }
-        }
-      }
-
-      for (const auto& library_object :
-           metadata->statically_linked_library_objects) {
-        if (!test_exec_requires_linking) {
-          size_t library_timestamp = GetTimestampOfFile(library_object);
-          if (library_timestamp == 0 ||
-              library_timestamp > metadata->metadata_timestamp ||
-              library_timestamp > test_exec_timestamp) {
-            test_exec_requires_linking = true;
-          }
-        }
-      }
-
-      if (lib_requires_linking) {
-        QueueArchiveCommand(test_lib_output_path, object_files_to_link, *metadata);
-      }
-
-      if (test_exec_requires_linking) {
-        std::vector<std::filesystem::path> files_to_link =
-            test_object_files_to_link;
-        files_to_link.push_back(test_lib_output_path);
-        for (const auto& library_object :
-             metadata->statically_linked_library_objects) {
-          files_to_link.push_back(library_object);
-        }
-        std::string input_files =
-            BuildStringOfFilesFromVectorOfFiles(files_to_link);
-        SetPlaceholder("in", input_files);
-
-        SetTimestampOfFileToNow(test_exec_output_path);
-
-        std::string compiler = "clang++";
-        auto cc_itr = metadata->build_commands_by_file_extension.find(".cc");
-        if (cc_itr != metadata->build_commands_by_file_extension.end()) {
-          std::string cmd = cc_itr->second;
-          size_t first_space = cmd.find(' ');
-          if (first_space != std::string::npos) {
-            compiler = cmd.substr(0, first_space);
-          }
-        }
-
-        std::stringstream cmd_stream;
-        cmd_stream << compiler << " -o "
-                   << std::quoted(test_exec_output_path.c_str()) << " "
-                   << input_files;
-
-        if (!metadata->dynamically_linked_libaries.empty()) {
-          cmd_stream << BuildStringOfStringsFromVectorOfStringAndPrefix(
-              " -l", metadata->dynamically_linked_libaries);
-        }
-        bool has_dynamic_lib_dir = false;
-        for (const auto& dir :
-             metadata->consolidated_library_search_directories) {
-          if (dir == GetDynamicLibraryDirectoryPath()) {
-            has_dynamic_lib_dir = true;
-          }
-          cmd_stream << " -L" << std::quoted(dir.c_str());
-        }
-        if (!has_dynamic_lib_dir) {
-          cmd_stream << " -L"
-                     << std::quoted(GetDynamicLibraryDirectoryPath().c_str());
-        }
-
-        auto command = std::make_unique<DeferredCommand>();
-        command->command = cmd_stream.str();
-        command->destination_file = test_exec_output_path;
-        command->package_id = metadata->package_id;
-        QueueCommand(Stage::LinkApplication, std::move(command));
-      }
-
+      BuildAndLinkTestPackage(*metadata, package_name);
     } else {
-      size_t object_file_timestamp = 0;
-      if (DoesFileExist(metadata->output_path) && !requires_linking) {
-        object_file_timestamp = GetTimestampOfFile(metadata->output_path);
-      } else {
-        requires_linking = true;
-      }
-
-      // Check if any of this package's object files are newer than the linked output.
-      if (!requires_linking) {
-        for (const auto& object_file : object_files_to_link) {
-          size_t obj_timestamp = GetTimestampOfFile(object_file);
-          if (obj_timestamp == 0 || obj_timestamp > object_file_timestamp) {
-            requires_linking = true;
-            break;
-          }
-        }
-      }
-
-      for (const auto& library_object :
-           metadata->statically_linked_library_objects) {
-        object_files_to_link.push_back(library_object);
-        if (!requires_linking) {
-          size_t library_timestamp = GetTimestampOfFile(library_object);
-          if (library_timestamp == 0 ||
-              library_timestamp > metadata->metadata_timestamp ||
-              library_timestamp > object_file_timestamp) {
-            requires_linking = true;
-          }
-        }
-      }
-
-      std::filesystem::path shared_library_path;
-      if (metadata->IsLibrary())
-        shared_library_path = GetDynamicLibraryDirectoryPath() /
-                              (std::string("lib") + package_name + ".so");
-      if (!requires_linking && !shared_library_path.empty()) {
-        if (!DoesFileExist(shared_library_path)) {
-          requires_linking = true;
-        } else {
-          size_t shared_lib_timestamp = GetTimestampOfFile(shared_library_path);
-          for (const auto& object_file : object_files_to_link) {
-            size_t obj_timestamp = GetTimestampOfFile(object_file);
-            if (obj_timestamp == 0 || obj_timestamp > shared_lib_timestamp) {
-              requires_linking = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!requires_linking && metadata->IsLibrary() &&
-          !metadata->statically_linked_library_output_path.empty()) {
-        if (!DoesFileExist(metadata->statically_linked_library_output_path)) {
-          requires_linking = true;
-        } else {
-          size_t static_lib_timestamp =
-              GetTimestampOfFile(metadata->statically_linked_library_output_path);
-          for (const auto& object_file : object_files_to_link) {
-            size_t obj_timestamp = GetTimestampOfFile(object_file);
-            if (obj_timestamp == 0 || obj_timestamp > static_lib_timestamp) {
-              requires_linking = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (requires_linking) {
-        std::string input_files =
-            BuildStringOfFilesFromVectorOfFiles(object_files_to_link);
-        SetPlaceholder("in", input_files);
-
-        if (metadata->IsApplication()) {
-          SetTimestampOfFileToNow(metadata->output_path);
-          auto command = std::make_unique<DeferredCommand>();
-          command->command = metadata->statically_link
-                                 ? metadata->static_linker_command
-                                 : metadata->linker_command;
-          SetPlaceholder("out", (std::stringstream()
-                                 << std::quoted(metadata->output_path.c_str()))
-                                    .str());
-          if (!metadata->dynamically_linked_libaries.empty()) {
-            SetPlaceholder("shared_libraries",
-                           BuildStringOfStringsFromVectorOfStringAndPrefix(
-                               "-l ", metadata->dynamically_linked_libaries));
-          }
-          if (!metadata->consolidated_library_search_directories.empty()) {
-            std::stringstream ss;
-            for (const auto& dir :
-                 metadata->consolidated_library_search_directories) {
-              ss << " -L" << std::quoted(dir.c_str());
-            }
-            SetPlaceholder("library_search_paths", ss.str());
-          } else {
-            SetPlaceholder("library_search_paths", "");
-          }
-          ReplacePlaceholdersInString(command->command);
-          command->destination_file = metadata->output_path;
-          command->package_id = metadata->package_id;
-
-          QueueCommand(GetLinkerStage(*metadata), std::move(command));
-        } else if (metadata->IsLibrary()) {
-          // Dynamically link.
-          SetTimestampOfFileToNow(shared_library_path);
-          auto command = std::make_unique<DeferredCommand>();
-          command->command = metadata->linker_command;
-          SetPlaceholder("out", (std::stringstream()
-                                 << std::quoted(shared_library_path.c_str()))
-                                    .str());
-          ReplacePlaceholdersInString(command->command);
-          command->destination_file = shared_library_path;
-          command->package_id = metadata->package_id;
-          QueueCommand(GetLinkerStage(*metadata), std::move(command));
-
-          // Copy the file to the destination directory.
-          SetTimestampOfFileToNow(metadata->output_path);
-          command = std::make_unique<DeferredCommand>();
-          command->command =
-              (std::stringstream()
-               << "cp " << std::quoted(shared_library_path.c_str()) << " "
-               << std::quoted(metadata->output_path.c_str()))
-                  .str();
-          command->destination_file = metadata->output_path;
-          command->package_id = metadata->package_id;
-
-          QueueCommand(Stage::CopyAssets, std::move(command));
-
-          // Statically link.
-          SetTimestampOfFileToNow(
-              metadata->statically_linked_library_output_path);
-          QueueArchiveCommand(metadata->statically_linked_library_output_path, object_files_to_link, *metadata);
-        }
-      }
+      BuildAndLinkNormalPackage(*metadata, package_name);
     }
   }
 
-  // Copy assets to the destination directory.
-  if (!metadata->destination_directory.empty()) {
-    if (!metadata->asset_directories.empty()) {
-      CopyAssetFilesForPackage(*metadata);
-    }
-    // Copy vcpkg runtime assets (e.g. DLLs, .so)
-    for (const auto& dir : metadata->consolidated_runtime_search_directories) {
-      if (!std::filesystem::exists(dir)) continue;
-      for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-        if (entry.is_directory()) continue;
-        std::string ext = entry.path().extension().string();
-        if (ext == ".dll" || ext == ".so" || ext == ".dylib") {
-          CopyAssetIfNewer(entry.path(), metadata->destination_directory /
-                                             entry.path().filename());
-        }
-      }
-    }
-  }
-
+  CopyPackageAssets(*metadata);
   return true;
 }
 
