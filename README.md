@@ -467,7 +467,7 @@ complete -C "rebs --complete" rebs
 
 ## Building
 
-You can build Really Easy Build System using the Really Easy Build System, but the. But, to avoid the "chicken and the egg" problem, you can also build using `make` in the root directory of this repository.
+You can build Really Easy Build System using the Really Easy Build System, but to avoid the "chicken and the egg" problem, you can also build using `make` in the root directory of this repository.
 
 You should also have the following tools installed:
 
