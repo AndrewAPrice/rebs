@@ -121,6 +121,9 @@ void ForEachFile(
     const std::filesystem::path& output_directory,
     const std::function<void(const std::filesystem::path&,
                              const std::filesystem::path&)>& on_each_file) {
+  std::error_code ec;
+  if (!std::filesystem::is_directory(source_directory, ec)) return;
+
   EnsureDirectoriesAndParentsExist(output_directory);
   for (auto const& dir_entry :
        std::filesystem::directory_iterator{source_directory}) {
